@@ -66,6 +66,12 @@ validation. It learns only to produce a small
 worker plan; it never executes tools or solves the task itself. See
 [the orchestration design](docs/LOCAL-ORCHESTRATION.md).
 
+Routing evals score each model per task using tier-specific quality, decode
+tokens/second, latency, and calibrated memory-headroom weights. Simple turns
+favor responsiveness; complex engineering work favors quality. Models below
+the memory-headroom floor are not selected. Tune weights in
+`config\routing-objective.json`.
+
 ## CPU/GPU calibration
 
 ```powershell

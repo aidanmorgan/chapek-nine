@@ -6,6 +6,8 @@ import {
   resolveAdapter,
 } from "./model-adapters.mjs";
 import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
+import { classifyRequest } from "./deterministic-router.mjs";
+import { assignUtilities, calibratedHeadroom } from "./routing-objective.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(
@@ -22,6 +24,13 @@ const profiles = JSON.parse(
 const adapterRegistry = JSON.parse(
   fs.readFileSync(path.join(root, "config", "model-adapters.json"), "utf8"),
 );
+const objective = JSON.parse(
+  fs.readFileSync(path.join(root, "config", "routing-objective.json"), "utf8"),
+);
+const calibrationPath = path.join(root, "runtime", "calibration.json");
+const calibration = fs.existsSync(calibrationPath)
+  ? JSON.parse(fs.readFileSync(calibrationPath, "utf8"))
+  : { profiles: {} };
 
 async function request(route, options = {}, timeout = 1_200_000) {
   const response = await fetch(`${baseUrl}${route}`, {
@@ -167,15 +176,18 @@ for (const model of models) {
         body: JSON.stringify(adapted),
       });
       const text = textOf(result);
+      const tier = classifyRequest({ messages: baseRequest.messages }).tier;
       rows.push({
         model,
         taskId: task.id,
         category: task.category,
         role: task.role,
+        tier,
         score: score(task, text),
         latencyMs: performance.now() - started,
         promptTps: result.timings?.prompt_per_second,
         generationTps: result.timings?.predicted_per_second,
+        memoryHeadroom: calibratedHeadroom(calibration.profiles?.[model]),
         response: text,
       });
     } catch (error) {
@@ -184,6 +196,7 @@ for (const model of models) {
         taskId: task.id,
         category: task.category,
         role: task.role,
+        tier: classifyRequest({ messages: [{ role: "user", content: task.prompt }] }).tier,
         score: 0,
         latencyMs: performance.now() - started,
         error: error.message,
@@ -192,16 +205,25 @@ for (const model of models) {
   }
 }
 
+assignUtilities(rows, objective);
+
 const rankings = {};
 for (const task of tasks) {
   rankings[task.id] = rows
     .filter((row) => row.taskId === task.id)
     .sort(
       (a, b) =>
-        b.score - a.score ||
+        b.utility - a.utility ||
         (a.latencyMs || Infinity) - (b.latencyMs || Infinity),
     )
-    .map((row) => ({ model: row.model, score: row.score, latencyMs: row.latencyMs }));
+    .map((row) => ({
+      model: row.model,
+      utility: row.utility,
+      score: row.score,
+      latencyMs: row.latencyMs,
+      generationTps: row.generationTps,
+      memoryHeadroom: row.memoryHeadroom,
+    }));
 }
 const roleScores = {};
 for (const role of [...new Set(tasks.map((task) => task.role))]) {
@@ -212,17 +234,21 @@ for (const role of [...new Set(tasks.map((task) => task.role))]) {
       );
       return {
         model,
-        score:
+        utility:
+          relevant.reduce((sum, row) => sum + row.utility, 0) /
+          Math.max(1, relevant.length),
+        quality:
           relevant.reduce((sum, row) => sum + row.score, 0) /
           Math.max(1, relevant.length),
       };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.utility - a.utility);
 }
 const report = {
   version: 1,
   generatedAt: new Date().toISOString(),
   suiteVersion: suite.version,
+  routingObjective: objective,
   mode,
   models,
   taskCount: tasks.length,

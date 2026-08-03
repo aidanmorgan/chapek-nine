@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "tiers": {
+    "simple": { "quality": 0.4, "decodeTps": 0.3, "latency": 0.2, "memoryHeadroom": 0.1 },
+    "moderate": { "quality": 0.6, "decodeTps": 0.2, "latency": 0.1, "memoryHeadroom": 0.1 },
+    "high": { "quality": 0.75, "decodeTps": 0.1, "latency": 0.05, "memoryHeadroom": 0.1 }
+  },
+  "minimumMemoryHeadroom": 0.15,
+  "description": "Simple turns favor responsiveness; complex engineering work favors answer quality. Calibrated memory headroom keeps routing away from configurations likely to page or exhaust VRAM."
+}
