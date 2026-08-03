@@ -12,9 +12,10 @@ for (const task of suite.tasks) {
   assert.ok(task.requiredAll.length > 0, `${task.id} needs deterministic scoring`);
 }
 assert.equal(suite.coreTaskCount, 24);
-assert.equal(suite.generatedTaskCount, 360);
-assert.equal(suite.tasks.length, 384);
+assert.equal(suite.generatedTaskCount, 720);
+assert.equal(suite.tasks.length, 744);
+assert.equal(suite.sampling.holdoutFamiliesPerRole, 97);
 for (const role of ["implementer", "analyst", "reviewer"]) {
-  assert.ok(counts.get(role) >= 120, `${role} needs broad coverage`);
+  assert.ok(counts.get(role) >= 240, `${role} needs broad coverage`);
 }
 console.log("developer task suite tests passed");

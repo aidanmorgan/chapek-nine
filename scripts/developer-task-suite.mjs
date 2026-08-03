@@ -26,6 +26,30 @@ const domains = [
   ["machine-learning feature service", "feature lookup, model version, and fallback path"],
   ["test infrastructure", "fixture lifecycle, parallel isolation, and failure diagnostics"],
   ["legacy integration boundary", "protocol adapter, compatibility layer, and rollback path"],
+  ["Go API gateway", "middleware chain, upstream pool, and request policy"],
+  ["Kotlin Android application", "view model, offline state, and API repository"],
+  ["Swift iOS client", "actor-isolated store, background refresh, and keychain"],
+  ["PHP commerce site", "checkout controller, cart session, and payment adapter"],
+  ["Ruby on Rails application", "Active Record model, background job, and controller"],
+  ["Elixir service", "supervisor tree, GenServer state, and message protocol"],
+  ["Scala stream processor", "Kafka consumer, offset policy, and transformation stage"],
+  ["Node.js gateway", "middleware, downstream client, and circuit breaker"],
+  ["GraphQL API", "resolver, dataloader, schema evolution, and authorization"],
+  ["gRPC service", "protobuf contract, streaming handler, and retry interceptor"],
+  ["WebAssembly module", "host boundary, memory buffer, and capability interface"],
+  ["embedded firmware updater", "signed image, bootloader handoff, and recovery slot"],
+  ["Linux system daemon", "socket listener, privilege boundary, and unit file"],
+  ["network control plane", "configuration propagation, peer state, and convergence loop"],
+  ["search indexing service", "document ingest, index writer, and query cache"],
+  ["recommendation pipeline", "candidate source, ranker, and experiment assignment"],
+  ["analytics dashboard", "query builder, aggregation cache, and visualization state"],
+  ["customer support integration", "ticket webhook, CRM adapter, and PII redaction"],
+  ["supply-chain service", "inventory reservation, supplier feed, and reconciliation"],
+  ["health-record integration", "consent gate, FHIR mapper, and audit ledger"],
+  ["media processing worker", "upload receiver, transcoding job, and delivery manifest"],
+  ["geospatial service", "tile cache, coordinate transform, and spatial query"],
+  ["real-time collaboration service", "operation log, conflict resolver, and presence channel"],
+  ["billing platform", "usage meter, invoice generator, and tax calculation boundary"],
 ];
 
 const patterns = [
@@ -67,6 +91,10 @@ export function buildExpandedTaskFamilies() {
 }
 
 export function loadDeveloperTaskSuite(root) {
+  const materialized = path.join(root, "evals", "developer-routing-full.json");
+  if (fs.existsSync(materialized)) {
+    return JSON.parse(fs.readFileSync(materialized, "utf8"));
+  }
   const core = JSON.parse(
     fs.readFileSync(path.join(root, "evals", "developer-routing.json"), "utf8"),
   );

@@ -137,14 +137,17 @@ for (let taskIndex = 0; taskIndex < suite.tasks.length; taskIndex += 1) {
 }
 
 // Hold out complete task families, not random prompt variants of tasks that
-// also appear in training. This measures generalization to unseen developer
-// requests while keeping every routing role represented.
-const rolePositions = new Map();
+// also appear in training. The materialized suite derives the required number
+// per routing role from its confidence/margin assumptions.
 const validationTaskIds = new Set();
-for (const task of suite.tasks) {
-  const position = rolePositions.get(task.role) || 0;
-  if (position % 4 === 0) validationTaskIds.add(task.id);
-  rolePositions.set(task.role, position + 1);
+const holdoutFamiliesPerRole = suite.sampling?.holdoutFamiliesPerRole || 1;
+for (const role of ["implementer", "analyst", "reviewer"]) {
+  const roleTasks = suite.tasks
+    .filter((task) => task.role === role)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  for (const task of roleTasks.slice(0, holdoutFamiliesPerRole)) {
+    validationTaskIds.add(task.id);
+  }
 }
 examples.sort((a, b) => a.id.localeCompare(b.id));
 const validation = examples.filter((example) =>
@@ -177,6 +180,7 @@ fs.writeFileSync(
       coreTaskCount: suite.coreTaskCount,
       generatedTaskCount: suite.generatedTaskCount,
       taskFamilyCount: suite.tasks.length,
+      sampling: suite.sampling || null,
       evalReport: fs.existsSync(evalReportPath)
         ? path.resolve(evalReportPath)
         : null,
