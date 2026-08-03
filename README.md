@@ -73,6 +73,31 @@ favor responsiveness; complex engineering work favors quality. Models below
 the memory-headroom floor are not selected. Tune weights in
 `config\routing-objective.json`.
 
+## Local operations and model onboarding
+
+The proxy admits work only while its RAM, VRAM, and GPU-temperature safety
+limits are met. It exposes local-only `GET /metrics` and augments `/health`
+with current resource data, route counts, failures, queue depth, and slot-cache
+activity. A bounded task-state brief is retained per conversation prefix; on a
+model switch it supplements the canonical transcript while each worker keeps
+its own compatible llama.cpp slot cache.
+
+After each model download, run:
+
+```powershell
+.\harness.ps1 calibrate glm-flash full
+.\harness.ps1 calibration-status glm-flash
+.\harness.ps1 probe glm-flash
+.\harness.ps1 evals full
+.\harness.ps1 train-coordinator
+.\harness.ps1 evaluate-coordinator
+```
+
+Calibration appends a history entry and flags material decode-throughput
+regressions. `probe` writes a capability report under `runtime\capabilities`.
+`evaluate-coordinator` uses held-out families and retains deterministic routing
+as the safe fallback when the QLoRA policy misses its promotion thresholds.
+
 ## CPU/GPU calibration
 
 ```powershell
@@ -176,8 +201,11 @@ download [profile]            Resume, download, and verify a worker
 download-background [profile] Run a resumable worker download in the background
 verify [profile]              Prove direct CUDA inference
 calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
+calibration-status [profile]  Detect a material throughput regression
+probe [profile]               Create a local worker capability report
 evals [quick|full]            Rank installed workers on developer tasks
 train-coordinator             Generate data and train/convert coordinator LoRA
+evaluate-coordinator          Gate learned routing on held-out data
 smoke [profile]               Prove router, front door, streaming, and Pi
 bootstrap [profile]           Complete first-run workflow
 start [profile]               Start router, coordinator, and front door

@@ -5,6 +5,11 @@
     "description": "Zero-load capability and difficulty classifier. Simple and tool-continuation turns route directly; only complex tasks spawn complementary workers."
   },
   "maxAssignments": 2,
+  "resourceLimits": {
+    "minFreeRamGiB": 2,
+    "minFreeVramMiB": 768,
+    "maxTemperatureC": 86
+  },
   "coordinator": ["gemma4", "glm-flash", "kimi-linear", "qwen-coder", "granite"],
   "roles": {
     "analyst": ["glm-flash", "kimi-linear", "granite", "qwen-coder", "gemma4"],

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "doctor", "profiles", "use", "add", "download", "download-background", "verify", "calibrate", "evals", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -391,6 +391,28 @@ function Download-Profile {
     Write-Host "Model is ready under $profileDir."
 }
 
+function New-OnboardProfile([string]$Name, [string]$Repo, [string]$Quant) {
+    if (-not $Name -or -not $Repo -or -not $Quant) { throw "Usage: .\harness.ps1 onboard <name> <owner/repo> <quant>" }
+    if ($Name -notmatch "^[a-z0-9][a-z0-9-]{1,48}$") { throw "Profile name must use lowercase letters, digits, and hyphens." }
+    $config = Read-Profiles
+    if ($config.profiles.PSObject.Properties[$Name]) { throw "Profile '$Name' already exists; use add to update it." }
+    $entry = [pscustomobject]@{
+        displayName = "$Name (unprobed)"
+        family = "generic"
+        repo = $Repo
+        quant = $Quant
+        context = 4096
+        hybridMoe = $false
+        offloadMode = "auto"
+        supported = $true
+        minimumRamGiB = 16
+        notes = "Generated onboarding profile. Download, calibrate, probe, and run compatibility evals before routing production Pi work here."
+    }
+    $config.profiles | Add-Member -NotePropertyName $Name -NotePropertyValue $entry
+    Write-Profiles $config
+    Write-Host "Created '$Name'. Next: download, calibrate, probe, then evaluate it before using it in routing."
+}
+
 function Start-BackgroundDownload {
     $selected = Get-SelectedProfile
     Assert-ProfileCapacity $selected
@@ -777,6 +799,36 @@ function Calibrate-Profile {
         $selected.Name $ConfigPath $CalibrationPath $calibrationMode
     if ($LASTEXITCODE -ne 0) { throw "Calibration failed with exit code $LASTEXITCODE." }
     Write-Host "Calibration saved to $CalibrationPath and will be applied automatically."
+}
+
+function Show-CalibrationStatus {
+    $selected = Get-SelectedProfile
+    if (-not (Test-Path -LiteralPath $CalibrationPath)) { throw "No calibration exists. Run: .\harness.ps1 calibrate $($selected.Name) full" }
+    & node (Join-Path $Root "scripts\calibration-regression.mjs") $CalibrationPath $selected.Name
+    if ($LASTEXITCODE -eq 2) { Write-Warning "Throughput regression exceeds the configured threshold; rerun full calibration before long sessions." }
+    elseif ($LASTEXITCODE -ne 0) { throw "Could not assess calibration regression." }
+}
+
+function Probe-Profile {
+    Start-Server
+    $selected = Get-SelectedProfile
+    $local = Get-LocalModel $selected
+    if (-not $local) { throw "Profile '$($selected.Name)' is not downloaded." }
+    $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
+    & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json")
+    if ($LASTEXITCODE -ne 0) { throw "Model capability probe failed." }
+}
+
+function Evaluate-Coordinator {
+    Start-Server
+    $dataDir = Join-Path $RuntimeDir "coordinator\data"
+    if (-not (Test-Path -LiteralPath (Join-Path $dataDir "validation.jsonl"))) {
+        throw "Coordinator validation data is missing. Run: .\harness.ps1 train-coordinator"
+    }
+    $env:CHAPEK_COORDINATOR_URL = "http://127.0.0.1:$CoordinatorPort"
+    & node (Join-Path $Root "scripts\evaluate-coordinator.mjs") $dataDir (Join-Path $RuntimeDir "coordinator-eval.json")
+    if ($LASTEXITCODE -eq 2) { Write-Warning "Coordinator did not meet promotion thresholds; keep deterministic routing active." }
+    elseif ($LASTEXITCODE -ne 0) { throw "Coordinator evaluation failed." }
 }
 
 function Bootstrap-Harness {
@@ -1168,10 +1220,13 @@ switch ($Command) {
     "profiles" { Show-Profiles }
     "use" { Set-Profile $Profile }
     "add" { Add-ProfileRepo $Profile $Value $Extra }
+    "onboard" { New-OnboardProfile $Profile $Value $Extra }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
     "calibrate" { Calibrate-Profile }
+    "calibration-status" { Show-CalibrationStatus }
+    "probe" { Probe-Profile }
     "evals" {
         # `evals quick|full` has no profile operand; shift the positional mode
         # before Start-Server resolves the selected worker profile.
@@ -1182,6 +1237,7 @@ switch ($Command) {
         Run-RoutingEvals
     }
     "train-coordinator" { Train-Coordinator }
+    "evaluate-coordinator" { Evaluate-Coordinator }
     "smoke" { Test-PiProfile }
     "bootstrap" { Bootstrap-Harness }
     "start" { Start-Server }
@@ -1197,12 +1253,16 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 profiles
   .\harness.ps1 use <kimi-linear|kimi-linear-q3|kimi-k3|qwen-coder|glm-flash|gemma4|granite>
   .\harness.ps1 add <profile> <owner/repo> [quant]
+  .\harness.ps1 onboard <name> <owner/repo> <quant>
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
   .\harness.ps1 download-background [profile]
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]
+  .\harness.ps1 calibration-status [profile]
+  .\harness.ps1 probe [profile]
   .\harness.ps1 evals [profile] [quick|full]
+  .\harness.ps1 evaluate-coordinator
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]

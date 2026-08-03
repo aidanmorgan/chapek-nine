@@ -282,4 +282,8 @@ fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 const temporary = `${outputPath}.${process.pid}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify(existing, null, 2)}\n`);
 fs.renameSync(temporary, outputPath);
+fs.appendFileSync(
+  path.join(path.dirname(outputPath), "calibration-history.jsonl"),
+  `${JSON.stringify({ at: new Date().toISOString(), profile: profileName, benchmark: existing.profiles[profileName].benchmark, selected: existing.profiles[profileName].selected })}\n`,
+);
 console.log(JSON.stringify(existing.profiles[profileName], null, 2));

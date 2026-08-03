@@ -117,6 +117,7 @@ const child = spawn(process.execPath, ["scripts/model-proxy.mjs"], {
     KIMI_PROXY_PORT: String(proxyPort),
     KIMI_KV_CACHE_DIR: kvCacheDir,
     KIMI_LLAMA_API_KEY: upstreamToken,
+    CHAPEK_DISABLE_RESOURCE_GUARD: "1",
   },
   stdio: ["ignore", "ignore", "pipe"],
 });
@@ -165,6 +166,16 @@ try {
     await fetch(`http://127.0.0.1:${proxyPort}/v1/models`)
   ).json();
   assert.deepEqual(models.data.map((item) => item.id), ["chapek-nine"]);
+  const metrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).json();
+  assert.equal(metrics.requests, 0);
+  assert.ok(metrics.resources);
+
+  const malformed = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "chapek-nine" }),
+  });
+  assert.equal(malformed.status, 400);
 
   const tools = [
     {
@@ -262,6 +273,8 @@ try {
     ),
     "the second identical Pi-style turn should restore its derived-prefix slot",
   );
+  const finalMetrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).json();
+  assert.ok(finalMetrics.requests >= 1);
   console.log("Proxy smoke test passed.");
 } finally {
   child.kill();

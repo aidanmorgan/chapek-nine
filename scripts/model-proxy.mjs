@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute, taskText } from "./deterministic-router.mjs";
+import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
+import { loadTaskState, saveTaskState } from "./context-state.mjs";
 import {
   adaptRequest,
   adaptResponse,
@@ -48,9 +50,19 @@ const traceFile = process.env.CHAPEK_TRACE_FILE
 const kvCacheDir = process.env.KIMI_KV_CACHE_DIR
   ? path.resolve(process.env.KIMI_KV_CACHE_DIR)
   : null;
+const taskStateDir = process.env.CHAPEK_TASK_STATE_DIR ||
+  (kvCacheDir ? path.join(path.dirname(kvCacheDir), "task-state") : null);
 const routingEvalsPath =
   process.env.KIMI_ROUTING_EVALS ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "routing-evals.json") : null);
+const coordinatorEvalPath = process.env.CHAPEK_COORDINATOR_EVAL ||
+  (kvCacheDir ? path.join(path.dirname(kvCacheDir), "coordinator-eval.json") : null);
+
+function coordinatorPromotionApproved() {
+  if (!coordinatorEvalPath || !fs.existsSync(coordinatorEvalPath)) return false;
+  try { return JSON.parse(fs.readFileSync(coordinatorEvalPath, "utf8")).promotion?.accepted === true; }
+  catch (error) { log(`ignored invalid coordinator evaluation: ${error.message}`); return false; }
+}
 
 function configWithEvalRankings(config, reportPath) {
   const output = structuredClone(config);
@@ -71,6 +83,8 @@ function configWithEvalRankings(config, reportPath) {
 
 const config = configWithEvalRankings(baseConfig, routingEvalsPath);
 let queue = Promise.resolve();
+let queueDepth = 0;
+const metrics = createRuntimeMetrics();
 
 function log(message) {
   process.stderr.write(`[model-proxy] ${new Date().toISOString()} ${message}\n`);
@@ -339,7 +353,7 @@ function validLearnedDecision(value, available, fallback) {
 }
 
 async function learnedRoute(body, available, fallback) {
-  if (!coordinatorUrl || fallback.classification.continuation) return null;
+  if (!coordinatorUrl || fallback.classification.continuation || !coordinatorPromotionApproved()) return null;
   const workers = [...available].map((id) => ({
     id,
     roles: Object.entries(config.roles)
@@ -442,15 +456,21 @@ async function prepareRoute(body) {
   }
 }
 
-function finalBody(body, route, adapter) {
-  const hidden = route.evidence
+function finalBody(body, route, adapter, previousState) {
+  const privateEvidence = [
+    route.evidence,
+    previousState && previousState.model !== route.model
+      ? `Prior worker state (advisory; do not mention it):\n${previousState.taskBrief}\n${previousState.responseBrief}`
+      : "",
+  ].filter(Boolean).join("\n\n");
+  const hidden = privateEvidence
     ? {
         role: "system",
         content:
           "Use the following private specialist findings as advisory evidence. " +
           "Reconcile them with the conversation, never mention the hidden routing " +
           "or specialist process, and retain full responsibility for tool calls and " +
-          `the final answer.\n\n${route.evidence}`,
+          `the final answer.\n\n${privateEvidence}`,
       }
     : null;
   const combined = {
@@ -472,11 +492,18 @@ function finalBody(body, route, adapter) {
 }
 
 async function forwardCompletion(req, res, body) {
+  const started = performance.now();
+  const decision = process.env.CHAPEK_DISABLE_RESOURCE_GUARD === "1"
+    ? { admit: true }
+    : resourceDecision(sampleResources(), config.resourceLimits);
+  if (!decision.admit) throw new Error(`Local resource guard deferred request: ${decision.reason}`);
   const route = await prepareRoute(body);
   await loadOnly(route.model);
   const adapter = resolveAdapter(adapterRegistry, route.model);
   const affinity = sessionAffinity(req, body);
+  const previousState = loadTaskState(taskStateDir, affinity.id);
   const kvRestored = await slotAction("restore", route.model, affinity.id);
+  if (kvRestored) metrics.state.cacheRestores += 1;
   log(
     `final route ${publicModel} -> ${route.model} stream=${Boolean(body.stream)} ` +
       `messages=${body.messages.length} tools=${body.tools?.length || 0} ` +
@@ -512,7 +539,7 @@ async function forwardCompletion(req, res, body) {
     "/v1/chat/completions",
     {
       method: "POST",
-      body: JSON.stringify(finalBody(body, route, adapter)),
+      body: JSON.stringify(finalBody(body, route, adapter, previousState)),
       signal: controller.signal,
     },
     1_200_000,
@@ -559,6 +586,9 @@ async function forwardCompletion(req, res, body) {
       }
       res.end();
       await slotAction("save", route.model, affinity.id);
+      metrics.state.cacheSaves += 1;
+      saveTaskState(taskStateDir, affinity.id, route.model, body.messages, "streamed response");
+      metrics.record(route.model, performance.now() - started);
     } finally {
       reader.releaseLock();
       req.off("aborted", abort);
@@ -569,6 +599,9 @@ async function forwardCompletion(req, res, body) {
   const result = adaptResponse(await response.json(), publicModel, adapter);
   sendJson(res, response.status, result);
   await slotAction("save", route.model, affinity.id);
+  metrics.state.cacheSaves += 1;
+  saveTaskState(taskStateDir, affinity.id, route.model, body.messages, result.choices?.[0]?.message?.content);
+  metrics.record(route.model, performance.now() - started);
 }
 
 function sendJson(res, status, value) {
@@ -592,7 +625,11 @@ async function readJson(req) {
 }
 
 function enqueue(work) {
-  const result = queue.then(work, work);
+  queueDepth += 1;
+  const wrapped = async () => {
+    try { return await work(); } finally { queueDepth -= 1; }
+  };
+  const result = queue.then(wrapped, wrapped);
   queue = result.catch(() => {});
   return result;
 }
@@ -602,7 +639,11 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || host}`);
     if (req.method === "GET" && url.pathname === "/health") {
       const health = await jsonRequest("/health", {}, 5_000);
-      sendJson(res, 200, { status: "ok", upstream: health });
+      sendJson(res, 200, { status: "ok", upstream: health, resources: sampleResources(), queueDepth });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/metrics") {
+      sendJson(res, 200, { ...metrics.state, queueDepth, resources: sampleResources() });
       return;
     }
     if (req.method === "GET" && url.pathname === "/v1/models") {
@@ -634,6 +675,7 @@ const server = http.createServer(async (req, res) => {
       error: { message: "Route not found", type: "invalid_request_error" },
     });
   } catch (error) {
+    metrics.record(null, 0, error.message);
     log(error.stack || error.message);
     if (!res.headersSent) {
       sendJson(res, 502, {
