@@ -262,6 +262,25 @@ async function internalChat(model, system, user, maxTokens) {
 }
 
 function validLearnedDecision(value, available, fallback) {
+  // Some llama.cpp grammar/template combinations render the semantically
+  // equivalent `worker` key despite the coordinator's `model` schema. Canonicalize
+  // only that legacy spelling before applying the strict safety validation below.
+  // All model IDs, confidence, roles, and assignment limits remain validated.
+  const primaryAlias = value?.primary?.worker || value?.primary?.instance;
+  if (primaryAlias && !value.primary.model) {
+    value = structuredClone(value);
+    value.primary.model = primaryAlias;
+    delete value.primary.worker;
+    delete value.primary.instance;
+    for (const step of value.steps || []) {
+      const stepAlias = step?.worker || step?.instance;
+      if (stepAlias && !step.model) {
+        step.model = stepAlias;
+        delete step.worker;
+        delete step.instance;
+      }
+    }
+  }
   if (!value || value.version !== 1) return null;
   if (!["simple", "moderate", "high"].includes(value.tier)) return null;
   if (
@@ -356,7 +375,9 @@ async function learnedRoute(body, available, fallback) {
     const result = await response.json();
     const text = messageText(result.choices?.[0]?.message?.content);
     const parsed = JSON.parse(text);
-    return validLearnedDecision(parsed, available, fallback);
+    const decision = validLearnedDecision(parsed, available, fallback);
+    if (!decision) log(`rejected coordinator plan: ${text.slice(0, 2000)}`);
+    return decision;
   } catch (error) {
     log(`learned coordinator fallback: ${error.message}`);
     return null;
