@@ -92,7 +92,10 @@ export function chooseRoute(body, config, available) {
     ...config.synthesizer,
     ...config.coordinator,
   ];
-  const model = firstAvailable(fallbackCandidates, available);
+  const measuredPlan = config.budgetPlans?.[classification.primaryRole]?.[classification.tier];
+  const model = measuredPlan && available.has(measuredPlan.model)
+    ? measuredPlan.model
+    : firstAvailable(fallbackCandidates, available);
   if (!model) throw new Error("No compatible downloaded model is available.");
 
   // Tool-result turns are latency-sensitive continuations of an existing agent
@@ -103,7 +106,12 @@ export function chooseRoute(body, config, available) {
     classification.tier === "simple" ||
     available.size === 1
   ) {
-    return { model, assignments: [], classification };
+    return {
+      model,
+      assignments: [],
+      classification,
+      maxTokens: measuredPlan?.maxTokens || config.tokens?.byTier?.[classification.tier] || config.tokens?.synthesizer || 800,
+    };
   }
 
   const complementary =
@@ -133,5 +141,10 @@ export function chooseRoute(body, config, available) {
     }
     if (assignments.length >= assignmentLimit) break;
   }
-  return { model, assignments, classification };
+  return {
+    model,
+    assignments,
+    classification,
+    maxTokens: measuredPlan?.maxTokens || config.tokens?.byTier?.[classification.tier] || config.tokens?.synthesizer || 800,
+  };
 }

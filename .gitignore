@@ -4,6 +4,11 @@ models/*
 !models/.gitkeep
 runtime/*
 !runtime/.gitkeep
+!training/corpus/
+!training/corpus/v1/
+!training/corpus/v1/*.jsonl
+!training/corpus/v1/*.parquet
+!training/corpus/v1/manifest.json
 .state.json
 node_modules/
 __pycache__/

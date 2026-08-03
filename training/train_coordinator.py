@@ -56,10 +56,16 @@ def schema_valid(value):
     primary = value["primary"]
     if (
         not isinstance(primary, dict)
-        or set(primary) != {"role", "model"}
+        or not {"role", "model"}.issubset(primary)
         or primary["role"] not in roles
         or not isinstance(primary["model"], str)
         or not primary["model"]
+    ):
+        return False
+    if "maxTokens" in primary and (
+        isinstance(primary["maxTokens"], bool)
+        or not isinstance(primary["maxTokens"], int)
+        or not 32 <= primary["maxTokens"] <= 4096
     ):
         return False
     confidence = value["confidence"]
@@ -187,11 +193,12 @@ def main():
 
     model = get_peft_model(model, peft)
     model.print_trainable_parameters()
+    parquet = (data_dir / "train.parquet").exists() and (data_dir / "validation.parquet").exists()
     dataset = load_dataset(
-        "json",
+        "parquet" if parquet else "json",
         data_files={
-            "train": str(data_dir / "train.jsonl"),
-            "validation": str(data_dir / "validation.jsonl"),
+            "train": str(data_dir / ("train.parquet" if parquet else "train.jsonl")),
+            "validation": str(data_dir / ("validation.parquet" if parquet else "validation.jsonl")),
         },
     )
 

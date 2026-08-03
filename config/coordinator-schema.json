@@ -14,7 +14,8 @@
         "role": {
           "enum": ["general", "analyst", "implementer", "reviewer"]
         },
-        "model": { "type": "string", "minLength": 1 }
+        "model": { "type": "string", "minLength": 1 },
+        "maxTokens": { "type": "integer", "minimum": 32, "maximum": 4096 }
       }
     },
     "steps": {

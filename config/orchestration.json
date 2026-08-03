@@ -15,6 +15,11 @@
   "tokens": {
     "coordinator": 600,
     "worker": 1000,
-    "synthesizer": 1400
+    "synthesizer": 1400,
+    "byTier": {
+      "simple": 320,
+      "moderate": 800,
+      "high": 1400
+    }
   }
 }

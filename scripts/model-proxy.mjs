@@ -321,6 +321,12 @@ function validLearnedDecision(value, available, fallback) {
   }
   return {
     model: value.primary.model,
+    maxTokens:
+      Number.isInteger(value.primary.maxTokens) &&
+      value.primary.maxTokens >= 32 &&
+      value.primary.maxTokens <= 4096
+        ? value.primary.maxTokens
+        : fallback.maxTokens,
     assignments,
     classification: {
       ...fallback.classification,
@@ -451,6 +457,14 @@ function finalBody(body, route, adapter) {
     ...body,
     messages: hidden ? [hidden, ...body.messages] : body.messages,
   };
+  const requestedMaxTokens = Number(
+    body.max_tokens ?? body.max_completion_tokens,
+  );
+  const routeMaxTokens = Number(route.maxTokens || 800);
+  combined.max_tokens = Number.isFinite(requestedMaxTokens)
+    ? Math.min(requestedMaxTokens, routeMaxTokens)
+    : routeMaxTokens;
+  delete combined.max_completion_tokens;
   const contextWindow = Number(
     profiles.profiles?.[route.model]?.context || 4096,
   );

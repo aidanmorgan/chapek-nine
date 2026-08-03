@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "format": "Parquet (Zstandard), verified with DuckDB",
+  "trainRows": 9060,
+  "validationRows": 5820,
+  "trainTaskFamilies": 453,
+  "validationTaskFamilies": 291,
+  "taskFamilyOverlap": 0,
+  "trainRoleCounts": {
+    "analyst": 1688,
+    "implementer": 4407,
+    "reviewer": 2713,
+    "general": 252
+  },
+  "validationRoleCounts": {
+    "analyst": 960,
+    "reviewer": 1631,
+    "general": 168,
+    "implementer": 3061
+  },
+  "files": {
+    "train.parquet": {
+      "sha256": "35be74a0291fa0ad602a8ff19644bb127df93e74a305d2746aacb2feb0af4144",
+      "bytes": 825522
+    },
+    "validation.parquet": {
+      "sha256": "cd25cf75d5e1b281f97a2208eb80dbf566c82925d9edc5d9cc5627438822e1a7",
+      "bytes": 519512
+    }
+  }
+}

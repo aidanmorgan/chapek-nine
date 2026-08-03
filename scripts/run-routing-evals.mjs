@@ -147,9 +147,14 @@ const rows = [];
 for (const model of models) {
   await loadOnly(model);
   for (const task of tasks) {
-    process.stderr.write(`[eval] ${model} ${task.id}\n`);
-    const started = performance.now();
-    try {
+    const tier = classifyRequest({
+      messages: [{ role: "user", content: task.prompt }],
+    }).tier;
+    const budgets = objective.outputBudgets?.[tier] || [500];
+    for (const maxTokens of budgets) {
+      process.stderr.write(`[eval] ${model} ${task.id} budget=${maxTokens}\n`);
+      const started = performance.now();
+      try {
       const baseRequest = {
         model,
         messages: [
@@ -161,7 +166,7 @@ for (const model of models) {
           { role: "user", content: task.prompt },
         ],
         temperature: 0,
-        max_tokens: 500,
+        max_tokens: maxTokens,
         stream: false,
       };
       const adapter = resolveAdapter(adapterRegistry, model);
@@ -176,31 +181,33 @@ for (const model of models) {
         body: JSON.stringify(adapted),
       });
       const text = textOf(result);
-      const tier = classifyRequest({ messages: baseRequest.messages }).tier;
-      rows.push({
+        rows.push({
         model,
         taskId: task.id,
         category: task.category,
         role: task.role,
         tier,
+        maxTokens,
         score: score(task, text),
         latencyMs: performance.now() - started,
         promptTps: result.timings?.prompt_per_second,
         generationTps: result.timings?.predicted_per_second,
         memoryHeadroom: calibratedHeadroom(calibration.profiles?.[model]),
         response: text,
-      });
-    } catch (error) {
-      rows.push({
+        });
+      } catch (error) {
+        rows.push({
         model,
         taskId: task.id,
         category: task.category,
         role: task.role,
-        tier: classifyRequest({ messages: [{ role: "user", content: task.prompt }] }).tier,
+        tier,
+        maxTokens,
         score: 0,
         latencyMs: performance.now() - started,
         error: error.message,
-      });
+        });
+      }
     }
   }
 }
@@ -223,6 +230,7 @@ for (const task of tasks) {
       latencyMs: row.latencyMs,
       generationTps: row.generationTps,
       memoryHeadroom: row.memoryHeadroom,
+      maxTokens: row.maxTokens,
     }));
 }
 const roleScores = {};
@@ -244,6 +252,38 @@ for (const role of [...new Set(tasks.map((task) => task.role))]) {
     })
     .sort((a, b) => b.utility - a.utility);
 }
+const roleTierPlans = {};
+for (const role of [...new Set(tasks.map((task) => task.role))]) {
+  roleTierPlans[role] = {};
+  for (const tier of ["simple", "moderate", "high"]) {
+    const relevant = rows.filter(
+      (row) => row.role === role && row.tier === tier,
+    );
+    if (!relevant.length) continue;
+    const grouped = new Map();
+    for (const row of relevant) {
+      const key = `${row.model}\u0000${row.maxTokens}`;
+      const aggregate = grouped.get(key) || {
+        model: row.model,
+        maxTokens: row.maxTokens,
+        utility: 0,
+        quality: 0,
+        samples: 0,
+      };
+      aggregate.utility += row.utility;
+      aggregate.quality += row.score;
+      aggregate.samples += 1;
+      grouped.set(key, aggregate);
+    }
+    roleTierPlans[role][tier] = [...grouped.values()]
+      .map((item) => ({
+        ...item,
+        utility: item.utility / item.samples,
+        quality: item.quality / item.samples,
+      }))
+      .sort((a, b) => b.utility - a.utility || a.maxTokens - b.maxTokens)[0];
+  }
+}
 const report = {
   version: 1,
   generatedAt: new Date().toISOString(),
@@ -254,10 +294,11 @@ const report = {
   taskCount: tasks.length,
   rankings,
   roleScores,
+  roleTierPlans,
   rows,
 };
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 const temporary = `${outputPath}.${process.pid}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`);
 fs.renameSync(temporary, outputPath);
-console.log(JSON.stringify({ outputPath, models, taskCount: tasks.length, roleScores }, null, 2));
+console.log(JSON.stringify({ outputPath, models, taskCount: tasks.length, roleScores, roleTierPlans }, null, 2));

@@ -28,6 +28,7 @@ function rankedConfig() {
       ...new Set([...rows.map((row) => row.model), ...config.roles[role]]),
     ];
   }
+  config.budgetPlans = report.roleTierPlans || {};
   return config;
 }
 
@@ -83,6 +84,7 @@ function label(decision) {
     primary: {
       role: decision.classification.primaryRole,
       model: decision.model,
+      maxTokens: decision.maxTokens,
     },
     steps: decision.assignments.map((step, index) => ({
       role: step.role,
