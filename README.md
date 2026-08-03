@@ -59,7 +59,10 @@ fields, and normalize tool calls. Add or override adapters in
 `config\orchestration.json`.
 
 The coordinator training set is generated from the deterministic policy plus
-the measured developer-task routing evals. It learns only to produce a small
+the measured developer-task routing evals. Its suite combines 24 hand-written
+tasks with 360 cross-domain engineering task families, yielding 7,680
+deterministic routing examples with entire task families held out for
+validation. It learns only to produce a small
 worker plan; it never executes tools or solves the task itself. See
 [the orchestration design](docs/LOCAL-ORCHESTRATION.md).
 

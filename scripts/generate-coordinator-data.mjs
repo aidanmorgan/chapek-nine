@@ -3,15 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute } from "./deterministic-router.mjs";
+import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir =
   process.argv[2] || path.join(root, "training", "data", "coordinator");
 const evalReportPath =
   process.argv[3] || path.join(root, "runtime", "routing-evals.json");
-const suite = JSON.parse(
-  fs.readFileSync(path.join(root, "evals", "developer-routing.json"), "utf8"),
-);
+const suite = loadDeveloperTaskSuite(root);
 const profiles = JSON.parse(
   fs.readFileSync(path.join(root, "config", "profiles.json"), "utf8"),
 );
@@ -175,6 +174,9 @@ fs.writeFileSync(
       version: 1,
       generatedAt: new Date().toISOString(),
       suiteVersion: suite.version,
+      coreTaskCount: suite.coreTaskCount,
+      generatedTaskCount: suite.generatedTaskCount,
+      taskFamilyCount: suite.tasks.length,
       evalReport: fs.existsSync(evalReportPath)
         ? path.resolve(evalReportPath)
         : null,

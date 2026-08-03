@@ -7,7 +7,7 @@
     "setup": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 setup",
     "bootstrap": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 bootstrap",
     "doctor": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 doctor",
-    "test": "node ./tests/calibration-search.mjs && node ./tests/proxy-smoke.mjs",
+    "test": "node ./tests/developer-task-suite.mjs && node ./tests/calibration-search.mjs && node ./tests/proxy-smoke.mjs",
     "verify": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 verify",
     "smoke": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 smoke",
     "start": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 start",

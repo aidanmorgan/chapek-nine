@@ -5,6 +5,7 @@ import {
   adaptRequest,
   resolveAdapter,
 } from "./model-adapters.mjs";
+import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(
@@ -14,9 +15,7 @@ const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(
 const outputPath =
   process.argv[2] || path.join(root, "runtime", "routing-evals.json");
 const mode = process.argv[3] || "quick";
-const suite = JSON.parse(
-  fs.readFileSync(path.join(root, "evals", "developer-routing.json"), "utf8"),
-);
+const suite = loadDeveloperTaskSuite(root);
 const profiles = JSON.parse(
   fs.readFileSync(path.join(root, "config", "profiles.json"), "utf8"),
 );
