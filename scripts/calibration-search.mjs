@@ -17,6 +17,11 @@ function key(candidate) {
     candidate.fitTargetMiB ?? "",
     candidate.batchSize,
     candidate.ubatchSize,
+    candidate.threads,
+    candidate.cacheTypeK,
+    candidate.cacheTypeV,
+    candidate.flashAttention ? "fa" : "no-fa",
+    candidate.context,
   ].join(":");
 }
 
@@ -24,28 +29,40 @@ function sameCandidate(left, right) {
   return key(left) === key(right);
 }
 
-export function initialCandidate({ profile, totalRamGiB, totalVramMiB }) {
+export function initialCandidate({ profile, totalRamGiB, totalVramMiB, logicalCpus }) {
   // Start from observed hardware capacity, not a hand-written batch grid. The
   // conservative cap prevents the very first benchmark from destabilising a
   // desktop with a large RAM-only model.
   const capacityMiB = totalRamGiB * 1024 + totalVramMiB;
   const batchSize = clamp(powerOfTwoAtMost(capacityMiB / 96), 64, 1024);
   const ubatchSize = clamp(powerOfTwoAtMost(batchSize / 2), 32, batchSize);
+  const threads = clamp(
+    powerOfTwoAtMost(Math.max(1, logicalCpus / 2)),
+    1,
+    Math.max(1, logicalCpus),
+  );
+  const common = {
+    batchSize,
+    ubatchSize,
+    threads,
+    cacheTypeK: profile.cacheTypeK || "q8_0",
+    cacheTypeV: profile.cacheTypeV || "q8_0",
+    flashAttention: true,
+    context: Number(profile.context || 4096),
+  };
   if (profile.hybridMoe) {
     return {
+      ...common,
       offloadMode: "partial-cpu-moe",
       cpuMoeLayers: Math.max(0, Number(profile.cpuMoeLayers ?? 0)),
-      batchSize,
-      ubatchSize,
     };
   }
   return {
+    ...common,
     offloadMode: "auto",
     // fit target is derived from currently usable VRAM. Leave a 12.5% desktop
     // reserve, never asking llama.cpp to reserve more than 2 GiB initially.
     fitTargetMiB: clamp(Math.floor(totalVramMiB * 0.875), 512, 2048),
-    batchSize,
-    ubatchSize,
   };
 }
 
@@ -53,14 +70,18 @@ export async function adaptiveSearch({
   profile,
   totalRamGiB,
   totalVramMiB,
+  logicalCpus,
   mode,
   evaluate,
 }) {
-  const budget = mode === "full" ? 18 : 9;
+  // Hardware settings have categorical choices as well as numeric placement
+  // values. Keep the search bounded so a large GGUF never turns calibration
+  // into an unbounded all-day experiment.
+  const budget = mode === "full" ? 36 : 16;
   const visited = new Set();
   const results = [];
   const maxCpuMoeLayers = Math.max(1, Math.ceil(Number(profile.cpuMoeLayers ?? 0) * 2));
-  let current = initialCandidate({ profile, totalRamGiB, totalVramMiB });
+  let current = initialCandidate({ profile, totalRamGiB, totalVramMiB, logicalCpus });
   let steps = {
     // Use the configured placement only as the safe starting point; a third
     // of that placement is a useful initial finite-difference distance.
@@ -68,6 +89,7 @@ export async function adaptiveSearch({
     batchSize: Math.max(32, current.batchSize / 2),
     ubatchSize: Math.max(16, current.ubatchSize / 2),
     fitTargetMiB: Math.max(128, powerOfTwoAtMost(current.fitTargetMiB / 4 || 128)),
+    threads: Math.max(1, powerOfTwoAtMost(current.threads / 2)),
   };
 
   async function measure(candidate) {
@@ -93,6 +115,31 @@ export async function adaptiveSearch({
     const ubatchUp = clamp(current.ubatchSize + steps.ubatchSize, 16, current.batchSize);
     const ubatchDown = clamp(current.ubatchSize - steps.ubatchSize, 16, current.batchSize);
     for (const ubatchSize of [ubatchDown, ubatchUp]) add({ ...current, ubatchSize });
+    const threadsUp = clamp(current.threads + steps.threads, 1, logicalCpus);
+    const threadsDown = clamp(current.threads - steps.threads, 1, logicalCpus);
+    for (const threads of [threadsDown, threadsUp]) add({ ...current, threads });
+
+    // KV quantization and Flash Attention are meaningful only when measured
+    // against this model, context, and GPU. Explore one conservative paired
+    // cache alternative at a time; invalid backend combinations are rejected
+    // by runCandidate and never selected.
+    const cacheModes = [...new Set([
+      `${current.cacheTypeK}:${current.cacheTypeV}`,
+      "q8_0:q8_0",
+      "q4_0:q4_0",
+      "f16:f16",
+    ])];
+    for (const cacheMode of cacheModes) {
+      const [cacheTypeK, cacheTypeV] = cacheMode.split(":");
+      add({ ...current, cacheTypeK, cacheTypeV });
+    }
+    add({ ...current, flashAttention: !current.flashAttention });
+    if (mode === "full") {
+      // Context is a capacity constraint, not a way to win the benchmark by
+      // shrinking the slot. Only probe larger values and let safety/score
+      // choose a higher context when its throughput cost is acceptable.
+      add({ ...current, context: Math.floor(current.context * 1.5) });
+    }
     if (profile.hybridMoe) {
       for (const direction of [-1, 1]) {
         add({
@@ -133,6 +180,11 @@ export async function adaptiveSearch({
         fitTargetMiB: bestNeighbour.fitTargetMiB,
         batchSize: bestNeighbour.batchSize,
         ubatchSize: bestNeighbour.ubatchSize,
+        threads: bestNeighbour.threads,
+        cacheTypeK: bestNeighbour.cacheTypeK,
+        cacheTypeV: bestNeighbour.cacheTypeV,
+        flashAttention: bestNeighbour.flashAttention,
+        context: bestNeighbour.context,
       };
       currentResult = bestNeighbour;
       continue;

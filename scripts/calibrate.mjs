@@ -83,13 +83,15 @@ async function runCandidate(candidate, index, count) {
     "-ub",
     String(candidate.ubatchSize),
     "-ctk",
-    profile.cacheTypeK || "q8_0",
+    candidate.cacheTypeK,
     "-ctv",
-    profile.cacheTypeV || "q8_0",
+    candidate.cacheTypeV,
     "-t",
-    String(Math.max(1, os.cpus().length / 2)),
+    String(candidate.threads),
     "-fa",
-    "on",
+    candidate.flashAttention ? "on" : "off",
+    "-c",
+    String(candidate.context),
   ];
   if (candidate.offloadMode === "partial-cpu-moe") {
     args.push("-ngl", "999", "-ncmoe", String(candidate.cpuMoeLayers));
@@ -221,6 +223,7 @@ const results = await adaptiveSearch({
   profile,
   totalRamGiB: totalRam / 1024 ** 3,
   totalVramMiB: initialGpu?.totalMiB ?? 0,
+  logicalCpus: os.cpus().length,
   mode,
   evaluate: runCandidate,
 });
@@ -259,7 +262,11 @@ existing.profiles[profileName] = {
     fitTargetMiB: best.fitTargetMiB,
     batchSize: best.batchSize,
     ubatchSize: best.ubatchSize,
-    context: profile.context,
+    threads: best.threads,
+    cacheTypeK: best.cacheTypeK,
+    cacheTypeV: best.cacheTypeV,
+    flashAttention: best.flashAttention,
+    context: best.context,
   },
   benchmark: {
     promptTps: best.promptTps,

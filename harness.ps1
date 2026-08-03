@@ -561,13 +561,16 @@ function Get-InferenceArgs($Selected, [string]$ModelPath) {
     $context = Get-EffectiveValue $Selected "context" 4096
     $batchSize = Get-EffectiveValue $Selected "batchSize" 512
     $ubatchSize = Get-EffectiveValue $Selected "ubatchSize" 256
+    $threads = Get-EffectiveValue $Selected "threads" ([math]::Max(1, [Environment]::ProcessorCount / 2))
+    $flashAttention = Get-EffectiveValue $Selected "flashAttention" $true
     $args = @(
         "-m", $ModelPath,
         "--jinja",
         "--ctx-size", "$context",
-        "--flash-attn", "on",
+        "--flash-attn", $(if ($flashAttention) { "on" } else { "off" }),
         "--batch-size", "$batchSize",
         "--ubatch-size", "$ubatchSize",
+        "--threads", "$threads",
         "--parallel", "1",
         "--prompt", "Reply with exactly: LOCAL CUDA OK",
         "--predict", "12",
@@ -580,8 +583,8 @@ function Get-InferenceArgs($Selected, [string]$ModelPath) {
 }
 
 function Get-CacheArgs($Selected) {
-    $cacheTypeK = if ($Selected.Config.cacheTypeK) { $Selected.Config.cacheTypeK } else { "q8_0" }
-    $cacheTypeV = if ($Selected.Config.cacheTypeV) { $Selected.Config.cacheTypeV } else { "q8_0" }
+    $cacheTypeK = Get-EffectiveValue $Selected "cacheTypeK" $(if ($Selected.Config.cacheTypeK) { $Selected.Config.cacheTypeK } else { "q8_0" })
+    $cacheTypeV = Get-EffectiveValue $Selected "cacheTypeV" $(if ($Selected.Config.cacheTypeV) { $Selected.Config.cacheTypeV } else { "q8_0" })
     return @("--cache-type-k", $cacheTypeK, "--cache-type-v", $cacheTypeV)
 }
 
@@ -653,9 +656,11 @@ function Write-LlamaPresets {
         $lines += "ctx-size = $context"
         $lines += "batch-size = $batchSize"
         $lines += "ubatch-size = $ubatchSize"
-        $lines += "cache-type-k = $(if ($selected.Config.cacheTypeK) { $selected.Config.cacheTypeK } else { 'q8_0' })"
-        $lines += "cache-type-v = $(if ($selected.Config.cacheTypeV) { $selected.Config.cacheTypeV } else { 'q8_0' })"
-        $lines += "flash-attn = on"
+        $lines += "cache-type-k = $(Get-EffectiveValue $selected 'cacheTypeK' $(if ($selected.Config.cacheTypeK) { $selected.Config.cacheTypeK } else { 'q8_0' }))"
+        $lines += "cache-type-v = $(Get-EffectiveValue $selected 'cacheTypeV' $(if ($selected.Config.cacheTypeV) { $selected.Config.cacheTypeV } else { 'q8_0' }))"
+        $flashAttention = Get-EffectiveValue $selected "flashAttention" $true
+        $lines += "flash-attn = $(if ($flashAttention) { 'on' } else { 'off' })"
+        $lines += "threads = $(Get-EffectiveValue $selected 'threads' ([math]::Max(1, [Environment]::ProcessorCount / 2)))"
         $offloadArgs = Get-OffloadArgs $selected ($selected.Name -eq $activeProfileName)
         for ($index = 0; $index -lt $offloadArgs.Count; $index += 1) {
             $key = $offloadArgs[$index] -replace "^-+", ""

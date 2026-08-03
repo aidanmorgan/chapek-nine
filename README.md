@@ -73,8 +73,10 @@ worker plan; it never executes tools or solves the task itself. See
 .\harness.ps1 calibrate kimi-linear full
 ```
 
-Calibration benchmarks candidate MoE expert splits, batch sizes, and dense
-model fit targets using `llama-bench`, while sampling RAM and VRAM. It selects
+Calibration uses bounded measurement-driven search over MoE expert splits (or
+dense GPU-fit targets), CPU threads, batch and micro-batch sizes, KV-cache
+quantization, Flash Attention, and—in full mode—larger safe context targets,
+using `llama-bench` while sampling RAM and VRAM. It selects
 the highest measured prompt/decode throughput that retains model-relative
 headroom. Memory already occupied by Codex and the desktop is treated as host
 overhead rather than charged to the model; a small OS/display reserve and a
