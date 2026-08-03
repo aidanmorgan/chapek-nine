@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "doctor", "profiles", "use", "add", "download", "verify", "calibrate", "evals", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "doctor", "profiles", "use", "add", "download", "download-background", "verify", "calibrate", "evals", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -43,6 +43,7 @@ $CalibrationPath = Join-Path $RuntimeDir "calibration.json"
 $CoordinatorConfigPath = Join-Path $Root "config\coordinator.json"
 $CoordinatorPort = 8081
 $CoordinatorLog = Join-Path $LogDir "coordinator.log"
+$DownloadJobsDir = Join-Path $RuntimeDir "downloads"
 $env:LLAMA_CACHE = Join-Path $ModelsDir "cache"
 
 function Read-Profiles {
@@ -228,6 +229,19 @@ function Show-Doctor {
     if ($partial -and -not $segmentState) {
         Write-Host "  Download:   $([math]::Round($partial.Length / 1GB, 2)) GiB received ($($partial.Name))"
     }
+    if (Test-Path -LiteralPath $DownloadJobsDir) {
+        $jobs = Get-ChildItem -LiteralPath $DownloadJobsDir -File -Filter "*.json" -ErrorAction SilentlyContinue
+        foreach ($jobFile in $jobs) {
+            try {
+                $job = Get-Content -Raw -LiteralPath $jobFile.FullName | ConvertFrom-Json
+                $jobProcess = Get-Process -Id $job.pid -ErrorAction SilentlyContinue
+                $state = if ($jobProcess -and $jobProcess.ProcessName -in @("powershell", "pwsh")) { "running" } else { "finished; rerun to resume if needed" }
+                Write-Host "  Background: $($job.profile) $state (PID $($job.pid)); log: $($job.outputLog)"
+            } catch {
+                Write-Warning "Could not read background download state '$($jobFile.FullName)'."
+            }
+        }
+    }
     if ($server) {
         $devices = & $server --list-devices 2>&1
         Write-Host "  CUDA:       $(if (($devices -join "`n") -match "CUDA") { "ready" } else { "not present in this llama.cpp build" })"
@@ -377,6 +391,47 @@ function Download-Profile {
     Write-Host "Model is ready under $profileDir."
 }
 
+function Start-BackgroundDownload {
+    $selected = Get-SelectedProfile
+    Assert-ProfileCapacity $selected
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw "Node is required for verified model downloads." }
+
+    New-Item -ItemType Directory -Force -Path $LogDir, $DownloadJobsDir | Out-Null
+    $jobPath = Join-Path $DownloadJobsDir "$($selected.Name).json"
+    if (Test-Path -LiteralPath $jobPath) {
+        try {
+            $previous = Get-Content -Raw -LiteralPath $jobPath | ConvertFrom-Json
+            $previousProcess = Get-Process -Id $previous.pid -ErrorAction SilentlyContinue
+            if ($previousProcess -and $previousProcess.ProcessName -in @("powershell", "pwsh")) {
+                Write-Host "Background download for '$($selected.Name)' is already running (PID $($previous.pid)). Log: $($previous.outputLog)"
+                return
+            }
+        } catch {
+            Write-Warning "Replacing unreadable background download state '$jobPath'."
+        }
+    }
+
+    $outputLog = Join-Path $LogDir "download-$($selected.Name).out.log"
+    $errorLog = Join-Path $LogDir "download-$($selected.Name).err.log"
+    $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+    $arguments = @(
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", (Join-Path $Root "harness.ps1"), "download", $selected.Name
+    )
+    $process = Start-Process -FilePath $powershell -ArgumentList $arguments -WorkingDirectory $Root `
+        -RedirectStandardOutput $outputLog -RedirectStandardError $errorLog -PassThru
+    $state = [ordered]@{
+        profile = $selected.Name
+        pid = $process.Id
+        started = (Get-Date).ToUniversalTime().ToString("o")
+        outputLog = $outputLog
+        errorLog = $errorLog
+    }
+    Write-Utf8NoBom $jobPath (($state | ConvertTo-Json) + "`n")
+    Write-Host "Started background download for '$($selected.Name)' (PID $($process.Id))."
+    Write-Host "Follow progress: Get-Content -Wait -LiteralPath '$outputLog'"
+}
+
 function Read-CoordinatorConfig {
     Get-Content -Raw -LiteralPath $CoordinatorConfigPath | ConvertFrom-Json
 }
@@ -415,7 +470,12 @@ function Download-Coordinator {
 
 function Find-TrainingPython {
     if ($env:CHAPEK_PYTHON -and (Test-Path -LiteralPath $env:CHAPEK_PYTHON)) {
-        return (Resolve-Path -LiteralPath $env:CHAPEK_PYTHON).Path
+        $override = (Resolve-Path -LiteralPath $env:CHAPEK_PYTHON).Path
+        $overrideVersion = & $override -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
+        if ($overrideVersion -notmatch "^\d+$" -or [int]$overrideVersion -lt 310 -or [int]$overrideVersion -gt 312) {
+            throw "CHAPEK_PYTHON must be Python 3.10-3.12 for Windows CUDA QLoRA; got '$overrideVersion'."
+        }
+        return $override
     }
     $paths = @()
     foreach ($candidate in @("python", "python3")) {
@@ -436,11 +496,13 @@ function Find-TrainingPython {
     foreach ($candidate in ($paths | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $candidate)) { continue }
         $version = & $candidate -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
-        if ($version -match "^\d+$" -and [int]$version -ge 310) {
+        # Current Windows CUDA PyTorch wheels support Python through 3.12.
+        # Prefer a supported interpreter over a newer CPU-only wheel.
+        if ($version -match "^\d+$" -and [int]$version -ge 310 -and [int]$version -le 312) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
-    throw "Python 3.10+ was not found. Set CHAPEK_PYTHON to the existing python.exe path."
+    throw "Python 3.10-3.12 was not found. Install one or set CHAPEK_PYTHON to its python.exe path for Windows CUDA QLoRA."
 }
 
 function Train-Coordinator {
@@ -454,14 +516,28 @@ function Train-Coordinator {
     & node (Join-Path $Root "scripts\generate-coordinator-data.mjs") $dataDir `
         (Join-Path $RuntimeDir "routing-evals.json")
     if ($LASTEXITCODE -ne 0) { throw "Coordinator dataset generation failed." }
-    if (-not (Test-Path -LiteralPath (Join-Path $venvDir "Scripts\python.exe"))) {
+    $venvPython = Join-Path $venvDir "Scripts\python.exe"
+    $requestedVersion = & $python -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)"
+    $venvVersion = if (Test-Path -LiteralPath $venvPython) {
+        & $venvPython -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
+    } else { $null }
+    if ($venvVersion -and $venvVersion -ne $requestedVersion) {
+        Write-Host "Replacing coordinator venv built for Python $venvVersion with Python $requestedVersion."
+        Remove-Item -LiteralPath $venvDir -Recurse -Force
+    }
+    if (-not (Test-Path -LiteralPath $venvPython)) {
         & $python -m venv $venvDir
         if ($LASTEXITCODE -ne 0) { throw "Could not create coordinator training venv." }
     }
-    $venvPython = Join-Path $venvDir "Scripts\python.exe"
     & $venvPython -m pip install --upgrade pip
     & $venvPython -m pip install -r (Join-Path $Root "training\requirements.txt")
     if ($LASTEXITCODE -ne 0) { throw "Coordinator training dependencies failed to install." }
+    $torchIndex = if ($env:CHAPEK_TORCH_INDEX_URL) { $env:CHAPEK_TORCH_INDEX_URL } else { "https://download.pytorch.org/whl/cu126" }
+    Write-Host "Installing CUDA-enabled PyTorch for QLoRA from $torchIndex"
+    & $venvPython -m pip install --upgrade --force-reinstall --no-cache-dir torch --index-url $torchIndex
+    if ($LASTEXITCODE -ne 0) { throw "Could not install CUDA-enabled PyTorch. Set CHAPEK_TORCH_INDEX_URL to a compatible official PyTorch wheel index." }
+    & $venvPython -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('QLoRA CUDA:', torch.version.cuda, torch.cuda.get_device_name(0))"
+    if ($LASTEXITCODE -ne 0) { throw "CUDA-enabled PyTorch is unavailable after installation; QLoRA cannot run." }
     $coordinatorConfig = Read-CoordinatorConfig
     & $venvPython (Join-Path $Root "training\train_coordinator.py") `
         --base-model $coordinatorConfig.trainingBase --data-dir $dataDir `
@@ -1088,6 +1164,7 @@ switch ($Command) {
     "use" { Set-Profile $Profile }
     "add" { Add-ProfileRepo $Profile $Value $Extra }
     "download" { Download-Profile }
+    "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
     "calibrate" { Calibrate-Profile }
     "evals" {
@@ -1117,6 +1194,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 add <profile> <owner/repo> [quant]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
+  .\harness.ps1 download-background [profile]
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]
   .\harness.ps1 evals [profile] [quick|full]

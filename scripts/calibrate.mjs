@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { adaptiveSearch } from "./calibration-search.mjs";
 
 const [bench, modelPath, profileName, profilesPath, outputPath, mode = "quick"] =
   process.argv.slice(2);
@@ -34,48 +35,6 @@ function gpuMemory() {
   return values?.length === 3 && values.every(Number.isFinite)
     ? { totalMiB: values[0], usedMiB: values[1], freeMiB: values[2] }
     : null;
-}
-
-function unique(values) {
-  return [...new Set(values.filter((value) => value >= 0))];
-}
-
-function candidates() {
-  const batches =
-    mode === "full"
-      ? [
-          [256, 128],
-          [512, 256],
-          [1024, 256],
-        ]
-      : [
-          [256, 128],
-          [512, 256],
-        ];
-  if (profile.hybridMoe) {
-    const baseline = Number(profile.cpuMoeLayers ?? 8);
-    const counts =
-      mode === "full"
-        ? unique([0, baseline - 4, baseline - 2, baseline, baseline + 2, baseline + 4])
-        : unique([baseline - 2, baseline, baseline + 2]);
-    return counts.flatMap((cpuMoeLayers) =>
-      batches.map(([batchSize, ubatchSize]) => ({
-        offloadMode: "partial-cpu-moe",
-        cpuMoeLayers,
-        batchSize,
-        ubatchSize,
-      })),
-    );
-  }
-  const targets = mode === "full" ? [2048, 1536, 1024] : [2048, 1536];
-  return targets.flatMap((fitTargetMiB) =>
-    batches.map(([batchSize, ubatchSize]) => ({
-      offloadMode: "auto",
-      fitTargetMiB,
-      batchSize,
-      ubatchSize,
-    })),
-  );
 }
 
 async function sampleGpu() {
@@ -258,11 +217,13 @@ async function runCandidate(candidate, index, count) {
 }
 
 const initialGpu = gpuMemory();
-const allCandidates = candidates();
-const results = [];
-for (let index = 0; index < allCandidates.length; index += 1) {
-  results.push(await runCandidate(allCandidates[index], index, allCandidates.length));
-}
+const results = await adaptiveSearch({
+  profile,
+  totalRamGiB: totalRam / 1024 ** 3,
+  totalVramMiB: initialGpu?.totalMiB ?? 0,
+  mode,
+  evaluate: runCandidate,
+});
 const successful = results.filter((result) => result.ok);
 if (!successful.length) {
   console.error(JSON.stringify(results, null, 2));

@@ -126,6 +126,18 @@ Download specialists independently:
 .\harness.ps1 download granite
 ```
 
+Start a large specialist download without keeping the current terminal open:
+
+```powershell
+.\harness.ps1 download-background glm-flash
+Get-Content -Wait -LiteralPath .\logs\download-glm-flash.out.log
+```
+
+The background process uses the same per-profile lock, segmented resume, and
+SHA-256 validation as a foreground download. `status` reports the job and log
+path. If it is interrupted, rerun the same command to resume; it never starts
+a second writer for that profile.
+
 `glm-flash` is GLM-4.7-Flash 30B-A3B at UD-Q4_K_XL (17.52 GB), the
 strongest current GLM variant that fits this machine. The newer GLM-5.2 and
 full GLM-4.7 checkpoints are 744B-A40B and 355B-A32B respectively, so they are
@@ -149,6 +161,7 @@ profiles                      List worker profiles
 use <profile>                 Select the default/fallback worker
 add <name> <repo> [quant]     Add or update a GGUF profile
 download [profile]            Resume, download, and verify a worker
+download-background [profile] Run a resumable worker download in the background
 verify [profile]              Prove direct CUDA inference
 calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
 evals [quick|full]            Rank installed workers on developer tasks
