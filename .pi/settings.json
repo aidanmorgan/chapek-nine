@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "llama-local",
+  "defaultThinkingLevel": "medium",
+  "hideThinkingBlock": true
+}

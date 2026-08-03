@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "modelId": "chapek-nine-coordinator",
+  "base": {
+    "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "quant": "Q5_K_M",
+    "file": "qwen2.5-0.5b-instruct-q5_k_m.gguf",
+    "sizeBytes": 522186592,
+    "sha256": "041474553fcabfc2a2d67903f9d2c2e50bd92528e670da4f33b5d0ce6e59fd55"
+  },
+  "trainingBase": "Qwen/Qwen2.5-0.5B-Instruct",
+  "context": 2048,
+  "maxTokens": 384,
+  "minimumConfidence": 0.7,
+  "cpuOnly": true,
+  "adapter": "coordinator/chapek-nine-lora.gguf"
+}

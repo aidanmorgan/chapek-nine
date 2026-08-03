@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "router": {
+    "mode": "deterministic",
+    "description": "Zero-load capability and difficulty classifier. Simple and tool-continuation turns route directly; only complex tasks spawn complementary workers."
+  },
+  "maxAssignments": 2,
+  "coordinator": ["gemma4", "glm-flash", "kimi-linear", "qwen-coder", "granite"],
+  "roles": {
+    "analyst": ["glm-flash", "kimi-linear", "granite", "qwen-coder", "gemma4"],
+    "implementer": ["glm-flash", "qwen-coder", "kimi-linear", "granite", "gemma4"],
+    "reviewer": ["glm-flash", "granite", "gemma4", "kimi-linear", "qwen-coder"]
+  },
+  "synthesizer": ["glm-flash", "kimi-linear", "qwen-coder", "granite", "gemma4"],
+  "tokens": {
+    "coordinator": 600,
+    "worker": 1000,
+    "synthesizer": 1400
+  }
+}

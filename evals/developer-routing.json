@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "feature-typescript-api",
+      "category": "feature-implementation",
+      "role": "implementer",
+      "prompt": "Design a TypeScript POST endpoint that creates an order idempotently. Include the key function, validation, error handling, and focused tests.",
+      "requiredAny": ["idempot", "test", "validation", "409"],
+      "requiredAll": ["TypeScript"]
+    },
+    {
+      "id": "debug-off-by-one",
+      "category": "debugging",
+      "role": "implementer",
+      "prompt": "A loop uses `for (let i = 0; i <= items.length; i++) total += items[i].price`. Diagnose the failure, provide the smallest safe patch, and name the regression test.",
+      "requiredAll": ["i < items.length", "test"]
+    },
+    {
+      "id": "review-concurrency",
+      "category": "code-review",
+      "role": "reviewer",
+      "prompt": "Review a cache refresh implementation where every request checks expiry and starts an asynchronous refresh without coordination. Identify the highest-risk defect and a concrete correction.",
+      "requiredAny": ["race", "stampede", "singleflight", "lock"],
+      "requiredAll": ["concurr"]
+    },
+    {
+      "id": "security-sql-injection",
+      "category": "security",
+      "role": "reviewer",
+      "prompt": "Review `db.query('SELECT * FROM users WHERE email = ' + email)`. Explain the vulnerability, fix it, and specify a test that proves the fix.",
+      "requiredAll": ["parameter", "test"],
+      "forbidden": ["escape the quotes manually"]
+    },
+    {
+      "id": "architecture-event-migration",
+      "category": "architecture",
+      "role": "analyst",
+      "prompt": "Plan a low-risk migration from synchronous order-to-email calls to an event-driven flow. Compare alternatives, failure modes, observability, and rollback.",
+      "requiredAll": ["trade", "rollback", "observ"],
+      "requiredAny": ["outbox", "idempot", "queue"]
+    },
+    {
+      "id": "performance-api-latency",
+      "category": "performance",
+      "role": "analyst",
+      "prompt": "An API p99 regressed from 80ms to 900ms after a release. Give an evidence-first investigation sequence and guard against optimizing the wrong component.",
+      "requiredAll": ["profile", "p99"],
+      "requiredAny": ["trace", "benchmark", "rollback", "bisect"]
+    },
+    {
+      "id": "testing-parser",
+      "category": "testing",
+      "role": "implementer",
+      "prompt": "Create a compact test strategy for a configuration parser supporting comments, quoted values, duplicate keys, Unicode, and malformed input.",
+      "requiredAny": ["boundary", "property", "fuzz", "table"],
+      "requiredAll": ["malformed", "Unicode"]
+    },
+    {
+      "id": "frontend-accessibility",
+      "category": "frontend",
+      "role": "implementer",
+      "prompt": "Implement an accessible modal dialog behavior. Cover focus entry, focus trapping, Escape, focus restoration, screen-reader labeling, and tests.",
+      "requiredAll": ["focus", "Escape", "test"],
+      "requiredAny": ["aria-modal", "role=\"dialog\"", "aria-labelledby"]
+    },
+    {
+      "id": "api-pagination",
+      "category": "api-design",
+      "role": "analyst",
+      "prompt": "Design stable cursor pagination for a high-write activity feed. Explain ordering, cursor contents, consistency limits, and validation.",
+      "requiredAll": ["cursor", "tie"],
+      "requiredAny": ["created_at", "id", "opaque", "snapshot"]
+    },
+    {
+      "id": "database-online-migration",
+      "category": "database",
+      "role": "analyst",
+      "prompt": "Plan an online migration that splits `full_name` into two columns for a large production table with old and new application versions overlapping.",
+      "requiredAll": ["backfill", "rollback"],
+      "requiredAny": ["dual write", "expand", "contract", "batch"]
+    },
+    {
+      "id": "devops-ci-cache",
+      "category": "devops",
+      "role": "implementer",
+      "prompt": "A CI dependency cache is fast but occasionally restores incompatible packages. Propose a deterministic cache key and safe fallback behavior.",
+      "requiredAll": ["lockfile", "cache"],
+      "requiredAny": ["OS", "runtime", "restore key", "checksum"]
+    },
+    {
+      "id": "powershell-safe-cleanup",
+      "category": "windows-powershell",
+      "role": "implementer",
+      "prompt": "Write a safe PowerShell cleanup approach for generated files under one known build directory. It must reject paths outside that directory and support dry-run.",
+      "requiredAll": ["LiteralPath", "WhatIf"],
+      "requiredAny": ["GetFullPath", "Resolve-Path", "StartsWith"]
+    },
+    {
+      "id": "cpp-resource-lifetime",
+      "category": "cpp",
+      "role": "implementer",
+      "prompt": "Modernize C++ code that allocates a resource with `new`, has three early returns, and manually deletes only on success. Explain and show the safe ownership pattern.",
+      "requiredAny": ["RAII", "unique_ptr", "scoped"],
+      "requiredAll": ["early return"]
+    },
+    {
+      "id": "rust-error-context",
+      "category": "rust",
+      "role": "implementer",
+      "prompt": "Refactor a Rust function that unwraps file open, parse, and network send operations. Preserve useful context while returning typed errors.",
+      "requiredAll": ["Result"],
+      "requiredAny": ["?", "thiserror", "anyhow", "map_err", "context"]
+    },
+    {
+      "id": "python-async-limit",
+      "category": "python",
+      "role": "implementer",
+      "prompt": "Implement a Python asyncio pattern that fetches 1,000 URLs with at most 20 in flight, preserves per-item errors, and does not cancel all work on one failure.",
+      "requiredAll": ["async", "20"],
+      "requiredAny": ["Semaphore", "gather", "TaskGroup"]
+    },
+    {
+      "id": "typescript-unknown",
+      "category": "type-systems",
+      "role": "implementer",
+      "prompt": "Explain why an untrusted JSON value should enter TypeScript as `unknown` rather than `any`, then show a small runtime narrowing function.",
+      "requiredAll": ["unknown", "narrow"],
+      "requiredAny": ["typeof", "schema", "type guard"]
+    },
+    {
+      "id": "sql-latest-per-group",
+      "category": "sql",
+      "role": "implementer",
+      "prompt": "Write portable SQL to return the latest event per account with deterministic tie-breaking, and explain the index that supports it.",
+      "requiredAll": ["ROW_NUMBER", "PARTITION", "index"],
+      "requiredAny": ["event_id", "id", "created_at"]
+    },
+    {
+      "id": "observability-correlation",
+      "category": "observability",
+      "role": "analyst",
+      "prompt": "Define a minimal logging and tracing contract for a request that crosses an API, queue, and worker. It must support incident correlation without leaking secrets.",
+      "requiredAll": ["correlation", "secret"],
+      "requiredAny": ["trace", "span", "request id"]
+    },
+    {
+      "id": "documentation-cli",
+      "category": "documentation",
+      "role": "implementer",
+      "prompt": "Outline a concise operator guide for a destructive-capable CLI command. Include prerequisites, examples, dry-run, failure recovery, and verification.",
+      "requiredAll": ["prerequisite", "dry-run", "verify"],
+      "requiredAny": ["recovery", "rollback"]
+    },
+    {
+      "id": "dependency-major-upgrade",
+      "category": "dependency-management",
+      "role": "analyst",
+      "prompt": "Plan a major framework upgrade in a mature repository. Explain discovery, compatibility checks, incremental changes, lockfile handling, and rollback.",
+      "requiredAll": ["changelog", "lockfile", "rollback"],
+      "requiredAny": ["codemod", "deprecat", "matrix"]
+    },
+    {
+      "id": "git-production-repair",
+      "category": "version-control",
+      "role": "analyst",
+      "prompt": "A bad commit is already deployed and shared. Compare revert, reset, and cherry-pick, then recommend the safest production repair.",
+      "requiredAll": ["revert"],
+      "requiredAny": ["shared history", "new commit", "rollback"]
+    },
+    {
+      "id": "incident-response",
+      "category": "incident-response",
+      "role": "reviewer",
+      "prompt": "A release causes intermittent payment failures. Give the first 30 minutes of response, including mitigation, evidence preservation, communication, and follow-up.",
+      "requiredAll": ["mitigat", "timeline"],
+      "requiredAny": ["rollback", "feature flag", "incident commander"]
+    },
+    {
+      "id": "algorithm-streaming-dedup",
+      "category": "algorithms",
+      "role": "implementer",
+      "prompt": "Design an algorithm to remove duplicate IDs from a stream while preserving first-seen order when the full input fits in memory. State complexity and edge cases.",
+      "requiredAll": ["O(n)", "set"],
+      "requiredAny": ["order", "first"]
+    },
+    {
+      "id": "agent-repository-change",
+      "category": "agentic-engineering",
+      "role": "implementer",
+      "prompt": "Describe the safest execution sequence for changing behavior in an unfamiliar repository when shell and edit tools are available.",
+      "requiredAll": ["inspect", "test"],
+      "requiredAny": ["diff", "status", "targeted", "rollback"]
+    }
+  ]
+}

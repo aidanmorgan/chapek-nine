@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "default": {
+    "systemMode": "merge",
+    "developerRole": "system",
+    "toolMode": "native",
+    "supportsImages": false,
+    "cachePrompt": true,
+    "stripRequestFields": [
+      "store",
+      "metadata",
+      "service_tier",
+      "prompt_cache_key",
+      "prompt_cache_retention"
+    ],
+    "stripSchemaKeywords": ["$schema", "$id", "examples"],
+    "response": {
+      "reasoningField": "reasoning_content",
+      "normalizeToolArguments": true
+    }
+  },
+  "models": {
+    "kimi-linear": {
+      "family": "kimi",
+      "toolMode": "native",
+      "systemMode": "merge"
+    },
+    "kimi-linear-q3": {
+      "extends": "kimi-linear"
+    },
+    "qwen-coder": {
+      "family": "qwen",
+      "toolMode": "native",
+      "systemMode": "merge"
+    },
+    "glm-flash": {
+      "family": "glm",
+      "toolMode": "native",
+      "systemMode": "merge",
+      "requestFields": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "repeat_penalty": 1.0,
+        "min_p": 0.01
+      }
+    },
+    "gemma4": {
+      "family": "gemma",
+      "toolMode": "native",
+      "systemMode": "merge",
+      "requestFields": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
+    },
+    "granite": {
+      "family": "granite",
+      "toolMode": "native",
+      "systemMode": "merge"
+    }
+  }
+}

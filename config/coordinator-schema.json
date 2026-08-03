@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tier", "primary", "steps", "confidence"],
+  "properties": {
+    "version": { "const": 1 },
+    "tier": { "enum": ["simple", "moderate", "high"] },
+    "primary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "model"],
+      "properties": {
+        "role": {
+          "enum": ["general", "analyst", "implementer", "reviewer"]
+        },
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "model", "instruction", "access"],
+        "properties": {
+          "role": { "enum": ["analyst", "implementer", "reviewer"] },
+          "model": { "type": "string", "minLength": 1 },
+          "instruction": { "type": "string", "minLength": 8 },
+          "access": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

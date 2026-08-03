@@ -1,0 +1,21 @@
+{
+  "name": "local-pi-hybrid-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi engineering harness backed by llama.cpp CPU/GPU hybrid inference",
+  "scripts": {
+    "setup": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 setup",
+    "bootstrap": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 bootstrap",
+    "doctor": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 doctor",
+    "test": "node ./tests/proxy-smoke.mjs",
+    "verify": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 verify",
+    "smoke": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 smoke",
+    "start": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 start",
+    "pi": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 pi",
+    "stop": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 stop",
+    "profiles": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 profiles"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.81.0"
+  }
+}
