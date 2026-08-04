@@ -1520,6 +1520,7 @@ switch ($Command) {
     "evaluate-coordinator" { Evaluate-Coordinator }
     "improve-coordinator" { Improve-Coordinator }
     "coordinator-autopilot" { Invoke-CoordinatorAutopilot }
+    "await-evals" { & (Join-Path $Root "scripts\await-routing-evaluation.ps1") }
     "smoke" { Test-PiProfile }
     "start" { Start-Server }
     "pi" { Start-Pi }
@@ -1558,6 +1559,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 evaluate-coordinator
   .\harness.ps1 improve-coordinator
   .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status|install|uninstall]
+  .\harness.ps1 await-evals
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]
