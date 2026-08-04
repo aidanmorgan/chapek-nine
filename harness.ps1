@@ -1084,7 +1084,8 @@ function Probe-Profile {
     # the selected worker has finished loading and can accept completions.
     Set-RouterModel $local.ModelId
     $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
-    & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json") $local.ManifestPath
+    $context = Get-EffectiveValue $selected "context" 4096
+    & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json") $local.ManifestPath $context
     if ($LASTEXITCODE -ne 0) { throw "Model capability probe failed." }
     # The proxy snapshots readiness at launch. Re-enter the composition root
     # after recording probe evidence so an eligible worker is admitted without

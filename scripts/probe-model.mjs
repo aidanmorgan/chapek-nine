@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [model, outputPath, manifestPath] = process.argv.slice(2);
+const [model, outputPath, manifestPath, contextArgument] = process.argv.slice(2);
+const contextLimit = Math.max(512, Number(contextArgument) || 4096);
 if (!model || !outputPath) throw new Error("Usage: probe-model.mjs <model-id> <output.json>");
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
 const headers = { "Content-Type": "application/json" };
@@ -49,7 +50,7 @@ checks.push(await check("multilingual_code", async () => {
 }));
 checks.push(await check("long_context_recall", async () => {
   const marker = "CHAPEK_LONG_CONTEXT_MARKER_73";
-  const filler = "The system is evaluating context retention. ".repeat(900);
+  const filler = "The system is evaluating context retention. ".repeat(Math.max(16, Math.min(900, Math.floor(contextLimit / 80))));
   const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "user", content: `${marker}\n${filler}\nWhat exact marker appeared at the beginning?` }], temperature: 0, max_tokens: 32 }) }, 240_000);
   if (!String(content(result)).includes(marker)) throw new Error("long-context marker was not recalled"); return {};
 }));
@@ -60,7 +61,9 @@ checks.push(await check("streaming", async () => {
 }));
 const jsonCheck = checks.find((item) => item.name === "json_schema");
 const artifact = manifestPath && fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : null;
-const probe = { version: 3, model, artifact, probedAt: new Date().toISOString(), jsonReliable: Boolean(jsonCheck?.passed), passed: checks.every((item) => item.passed), checks, notes: "This is a conformance signal, not a quality benchmark. A failure keeps the capability false rather than assuming adapter compatibility." };
+const requiredChecks = new Set(["json_schema", "developer_instruction", "tool_schema", "streaming"]);
+const capability = Object.fromEntries(checks.map((check) => [check.name, check.passed]));
+const probe = { version: 4, model, artifact, probedAt: new Date().toISOString(), jsonReliable: Boolean(jsonCheck?.passed), passed: checks.filter((check) => requiredChecks.has(check.name)).every((check) => check.passed), capability, checks, notes: "Core OpenAI/Pi interoperability gates admission. Multilingual code and long-context recall are measured routing capabilities, not reasons to discard an otherwise compatible worker." };
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(probe, null, 2)}\n`);
 console.log(JSON.stringify(probe, null, 2));
