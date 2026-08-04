@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -451,6 +451,24 @@ function Improve-Coordinator {
     $script:Value = "full"; Run-RoutingEvals
     Train-Coordinator
     Evaluate-Coordinator
+}
+
+function Invoke-CoordinatorAutopilot {
+    $watch = $Profile -eq "watch"
+    do {
+        $raw = & node (Join-Path $Root "scripts\coordinator-autopilot.mjs") $RuntimeDir check
+        if ($LASTEXITCODE -ne 0) { throw "Coordinator autopilot check failed." }
+        $next = $raw | ConvertFrom-Json
+        Write-Host "Coordinator autopilot: $($next.action) ($($next.reason))"
+        if ($next.action -eq "improve") {
+            Improve-Coordinator
+            $evaluation = Get-Content -Raw -LiteralPath (Join-Path $RuntimeDir "coordinator-eval.json") | ConvertFrom-Json
+            $accepted = ([string]$evaluation.promotion.accepted).ToLowerInvariant()
+            & node (Join-Path $Root "scripts\coordinator-autopilot.mjs") $RuntimeDir record $accepted
+            if ($LASTEXITCODE -ne 0) { throw "Coordinator autopilot state update failed." }
+        }
+        if ($watch) { Start-Sleep -Seconds 900 }
+    } while ($watch)
 }
 
 function Start-BackgroundDownload {
@@ -1389,6 +1407,7 @@ switch ($Command) {
     "train-coordinator" { Train-Coordinator }
     "evaluate-coordinator" { Evaluate-Coordinator }
     "improve-coordinator" { Improve-Coordinator }
+    "coordinator-autopilot" { Invoke-CoordinatorAutopilot }
     "smoke" { Test-PiProfile }
     "bootstrap" { Bootstrap-Harness }
     "start" { Start-Server }
@@ -1424,6 +1443,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 evals [profile] [quick|full]
   .\harness.ps1 evaluate-coordinator
   .\harness.ps1 improve-coordinator
+  .\harness.ps1 coordinator-autopilot [watch]
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]
