@@ -175,9 +175,13 @@ async function loadOnly(modelId) {
       );
     }
   }
+  // Take the baseline only once any previous model has been released. This
+  // avoids attributing the outgoing worker's pages to the incoming worker.
+  const resourceBaseline = sampleResources();
   const selected = (await catalog()).find((model) => model.id === modelId);
   if (!selected) throw new Error(`llama.cpp does not know model '${modelId}'.`);
-  if (selected.status?.value !== "loaded") {
+  const loadedHere = selected.status?.value !== "loaded";
+  if (loadedHere) {
     log(`load ${modelId}`);
     await jsonRequest("/models/load", {
       method: "POST",
@@ -185,6 +189,7 @@ async function loadOnly(modelId) {
     });
     await waitForModel(modelId, (status) => status === "loaded", "load");
   }
+  if (loadedHere) runtimeState.allocation(modelId, resourceBaseline, sampleResources());
   otelLifecycle.record(performance.now() - lifecycleStarted, { model: modelId, operation: "load" });
 }
 
@@ -689,7 +694,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/dashboard") {
-      const page = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chapek Nine runtime</title><style>body{margin:0;background:#101318;color:#e8edf3;font:14px system-ui;padding:24px}h1{margin:0 0 4px}.muted{color:#9eacbc}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:20px}.card{background:#1a2029;border:1px solid #2b3544;border-radius:10px;padding:14px}.num{font-size:24px;font-weight:650}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px;border-bottom:1px solid #2b3544}code{font-family:ui-monospace,monospace}</style><h1>Chapek Nine</h1><div class="muted">Local model proxy runtime — refreshes every second</div><div id="summary" class="grid"></div><div class="grid"><section class="card"><h2>Models</h2><div id="models"></div></section><section class="card"><h2>Recent events</h2><div id="events"></div></section></div><script>const e=x=>document.getElementById(x),esc=x=>String(x??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const render=async()=>{try{const d=await(await fetch('/runtime')).json(),s=d.scheduler||{},m=Object.entries(d.models||{});e('summary').innerHTML=[['Queued',s.pending??0],['Running',s.running?'yes':'no'],['Completed',s.completed??0],['Oldest wait',String(s.oldestWaitMs??0)+' ms']].map(([a,b])=>'<div class="card"><div class="muted">'+a+'</div><div class="num">'+b+'</div></div>').join('');e('models').innerHTML=m.length?'<table><tr><th>Model</th><th>Requests</th><th>Failures</th><th>RAM / VRAM</th></tr>'+m.map(([n,v])=>'<tr><td><code>'+esc(n)+'</code></td><td>'+v.requests+'</td><td>'+v.failures+'</td><td>'+Math.round((v.allocatedRamBytes||0)/1048576)+' / '+Math.round((v.allocatedVramBytes||0)/1048576)+' MiB</td></tr>').join('')+'</table>':'No routed requests yet.';e('events').innerHTML=(d.events||[]).slice(-12).reverse().map(v=>'<p><code>'+esc(v.at)+'</code> '+esc(v.type)+' '+esc(v.model||v.kind||'')+'</p>').join('')||'No events yet.'}catch(err){e('events').textContent='Dashboard unavailable: '+err.message}};render();setInterval(render,1000)</script>`;
+      const page = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chapek Nine runtime</title><style>body{margin:0;background:#101318;color:#e8edf3;font:14px system-ui;padding:24px}h1{margin:0 0 4px}.muted{color:#9eacbc}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:20px}.card{background:#1a2029;border:1px solid #2b3544;border-radius:10px;padding:14px}.num{font-size:24px;font-weight:650}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px;border-bottom:1px solid #2b3544}code{font-family:ui-monospace,monospace}</style><h1>Chapek Nine</h1><div class="muted">Local model proxy runtime — refreshes every second</div><div id="summary" class="grid"></div><div class="grid"><section class="card"><h2>Models</h2><div id="models"></div></section><section class="card"><h2>Recent events</h2><div id="events"></div></section></div><script>const e=x=>document.getElementById(x),esc=x=>String(x??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const mib=n=>Math.round((n||0)/1048576);const render=async()=>{try{const d=await(await fetch('/runtime')).json(),s=d.scheduler||{},m=Object.entries(d.models||{});e('summary').innerHTML=[['Queued',s.pending??0],['Running',s.running?'yes':'no'],['Completed',s.completed??0],['Oldest wait',String(s.oldestWaitMs??0)+' ms']].map(([a,b])=>'<div class="card"><div class="muted">'+a+'</div><div class="num">'+b+'</div></div>').join('');e('models').innerHTML=m.length?'<table><tr><th>Model</th><th>Requests</th><th>Failures</th><th>Load delta RAM / VRAM</th><th>Observed host RAM / VRAM</th></tr>'+m.map(([n,v])=>'<tr><td><code>'+esc(n)+'</code></td><td>'+v.requests+'</td><td>'+v.failures+'</td><td>'+mib(v.allocatedRamBytes)+' / '+mib(v.allocatedVramBytes)+' MiB</td><td>'+mib(v.observedRamBytes)+' / '+mib(v.observedVramBytes)+' MiB</td></tr>').join('')+'</table>':'No routed requests yet.';e('events').innerHTML=(d.events||[]).slice(-12).reverse().map(v=>'<p><code>'+esc(v.at)+'</code> '+esc(v.type)+' '+esc(v.model||v.kind||'')+'</p>').join('')||'No events yet.'}catch(err){e('events').textContent='Dashboard unavailable: '+err.message}};render();setInterval(render,1000)</script>`;
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(page);
       return;
     }
