@@ -34,6 +34,11 @@ are reported as skipped rather than treated as failures.
 .\harness.ps1 download-all
 ```
 
+`verify-all` performs an actual CUDA generation test for every locally
+downloaded practical worker and writes one immutable-result report per worker
+under `runtime\verification`. A zero process exit code alone is not accepted:
+the worker must emit the required verification token.
+
 Models and generated runtime data can live on another disk:
 
 ```powershell

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -900,9 +900,52 @@ function Verify-Profile {
     if (-not $localModel) { throw "The verified model manifest is missing after download." }
     Write-Host "CUDA device detected. Running local inference verification..."
     $args = Get-InferenceArgs $selected $localModel.ModelPath
-    & $cli @args
-    if ($LASTEXITCODE -ne 0) { throw "Local CUDA inference failed with exit code $LASTEXITCODE." }
+    $output = @(& $cli @args 2>&1)
+    $exitCode = $LASTEXITCODE
+    $text = $output -join "`n"
+    $output | ForEach-Object { Write-Host $_ }
+    $promptTps = if ($text -match "Prompt:\s*([0-9.]+)\s*t/s") { [double]$Matches[1] } else { $null }
+    $generationTps = if ($text -match "Generation:\s*([0-9.]+)\s*t/s") { [double]$Matches[1] } else { $null }
+    $passed = $exitCode -eq 0 -and $text -match "(?m)^\s*LOCAL CUDA OK\s*$"
+    $reportDir = Join-Path $RuntimeDir "verification"
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+    $report = [ordered]@{
+        version = 1
+        profile = $selected.Name
+        modelPath = $localModel.ModelPath
+        verifiedAt = (Get-Date).ToUniversalTime().ToString("o")
+        cuda = $true
+        passed = $passed
+        exitCode = $exitCode
+        promptTps = $promptTps
+        generationTps = $generationTps
+        expected = "LOCAL CUDA OK"
+        outputTail = $text.Substring([math]::Max(0, $text.Length - 4000))
+    }
+    Write-Utf8NoBom (Join-Path $reportDir "$($selected.Name).json") (($report | ConvertTo-Json -Depth 4) + "`n")
+    if ($exitCode -ne 0) { throw "Local CUDA inference failed with exit code $exitCode." }
+    if (-not $passed) { throw "Local CUDA inference completed but did not return the required exact verification token. See runtime\verification\$($selected.Name).json." }
     Write-Host "Local inference verification passed."
+}
+
+function Verify-AllProfiles {
+    $config = Read-Profiles
+    $savedProfile = $script:Profile
+    $results = @()
+    try {
+        foreach ($property in $config.profiles.PSObject.Properties) {
+            $name = $property.Name; $entry = $property.Value
+            if (-not $entry.supported) { $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "capability-gated" }; continue }
+            $selected = [pscustomobject]@{ Name = $name; Config = $entry }
+            if (-not (Get-LocalModel $selected)) { $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "not downloaded" }; continue }
+            $script:Profile = $name
+            try { Verify-Profile; $results += [pscustomobject]@{ profile = $name; status = "passed"; reason = $null } }
+            catch { Write-Warning "Verification failed for '$name': $($_.Exception.Message)"; $results += [pscustomobject]@{ profile = $name; status = "failed"; reason = $_.Exception.Message } }
+        }
+    } finally { $script:Profile = $savedProfile }
+    $results | Format-Table -AutoSize | Out-Host
+    $failed = @($results | Where-Object { $_.status -eq "failed" }).Count
+    if ($failed) { throw "$failed model verification(s) failed; see runtime\verification." }
 }
 
 function Calibrate-Profile {
@@ -1453,6 +1496,7 @@ switch ($Command) {
     "download-all" { Download-AllProfiles }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
+    "verify-all" { Verify-AllProfiles }
     "calibrate" { Calibrate-Profile }
     "calibrate-all" {
         if ($Profile -in @("quick", "full") -and -not $Value) { $Value = $Profile; $Profile = $null }
@@ -1510,6 +1554,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 download-all
   .\harness.ps1 download-background [profile]
   .\harness.ps1 verify [profile]
+  .\harness.ps1 verify-all
   .\harness.ps1 calibrate [profile] [quick|full]
   .\harness.ps1 calibrate-all [quick|full]
   .\harness.ps1 init
