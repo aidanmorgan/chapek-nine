@@ -63,6 +63,20 @@
       "minimumRamGiB": 24,
       "notes": "Practical coding default for 16 GiB VRAM / 32 GiB RAM. Hybrid expert placement is enabled."
     },
+    "deepseek-r1-14b": {
+      "displayName": "DeepSeek R1 Distill Qwen 14B (Q4_K_M)",
+      "family": "deepseek",
+      "repo": "bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF",
+      "quant": "Q4_K_M",
+      "context": 8192,
+      "cacheTypeK": "q8_0",
+      "cacheTypeV": "q8_0",
+      "hybridMoe": false,
+      "offloadMode": "auto",
+      "supported": true,
+      "minimumRamGiB": 20,
+      "notes": "A practical 14B DeepSeek reasoning worker for this 16 GiB VRAM / 31 GiB RAM host. Init downloads the Q4_K_M GGUF and calibration chooses its safe layer placement."
+    },
     "glm-flash": {
       "displayName": "GLM-4.7-Flash 30B-A3B",
       "family": "glm",

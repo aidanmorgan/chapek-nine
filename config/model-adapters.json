@@ -33,6 +33,10 @@
       "toolMode": "native",
       "systemMode": "merge"
     },
+    "deepseek-r1-14b": {
+      "extends": "qwen-coder",
+      "family": "deepseek"
+    },
     "glm-flash": {
       "family": "glm",
       "toolMode": "native",

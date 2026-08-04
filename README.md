@@ -105,9 +105,13 @@ calibrates and probes them serially, and starts the normal worker again:
 .\harness.ps1 init full auto
 ```
 
-The final argument is `auto` (train the coordinator only when its QLoRA adapter
+`init` defaults to `full auto`. The final argument is `auto` (train the coordinator only when its QLoRA adapter
 is absent), `train` (force a refresh), or `skip-training`. Skipping is refused
 when no adapter exists. K3 and Kimi Q3 remain deliberately opt-in.
+
+The practical worker set includes Kimi Linear Q2 and DeepSeek R1 Distill Qwen
+14B Q4_K_M. The latter is an approximately 9 GB GGUF intended for this 16 GiB
+VRAM / 31 GiB RAM configuration and is calibrated before routing can select it.
 
 Calibration appends a history entry and flags material decode-throughput
 regressions. `probe` writes a capability report under `runtime\capabilities`.

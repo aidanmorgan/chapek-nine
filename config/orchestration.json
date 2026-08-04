@@ -10,13 +10,13 @@
     "minFreeVramMiB": 768,
     "maxTemperatureC": 86
   },
-  "coordinator": ["gemma4", "glm-flash", "kimi-linear", "qwen-coder", "granite"],
+  "coordinator": ["gemma4", "deepseek-r1-14b", "glm-flash", "kimi-linear", "qwen-coder", "granite"],
   "roles": {
-    "analyst": ["glm-flash", "kimi-linear", "granite", "qwen-coder", "gemma4"],
-    "implementer": ["glm-flash", "qwen-coder", "kimi-linear", "granite", "gemma4"],
-    "reviewer": ["glm-flash", "granite", "gemma4", "kimi-linear", "qwen-coder"]
+    "analyst": ["deepseek-r1-14b", "glm-flash", "kimi-linear", "granite", "qwen-coder", "gemma4"],
+    "implementer": ["glm-flash", "qwen-coder", "kimi-linear", "deepseek-r1-14b", "granite", "gemma4"],
+    "reviewer": ["deepseek-r1-14b", "glm-flash", "granite", "gemma4", "kimi-linear", "qwen-coder"]
   },
-  "synthesizer": ["glm-flash", "kimi-linear", "qwen-coder", "granite", "gemma4"],
+  "synthesizer": ["deepseek-r1-14b", "glm-flash", "kimi-linear", "qwen-coder", "granite", "gemma4"],
   "tokens": {
     "coordinator": 600,
     "worker": 1000,
