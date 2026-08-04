@@ -324,9 +324,6 @@ function Assert-ProfileCapacity($Selected) {
     if (-not $Selected.Config.repo) {
         throw "Profile '$($Selected.Name)' has no GGUF repo. Run: .\harness.ps1 add $($Selected.Name) <owner/repo> [quant]"
     }
-    if ($ram -and $ram -lt [double]$Selected.Config.minimumRamGiB) {
-        Write-Warning "This profile recommends at least $($Selected.Config.minimumRamGiB) GiB RAM; detected $ram GiB."
-    }
     if (-not $gpu) { Write-Warning "No NVIDIA GPU detected; llama.cpp will run on CPU." }
 }
 
@@ -405,7 +402,6 @@ function New-OnboardProfile([string]$Name, [string]$Repo, [string]$Quant) {
         hybridMoe = $false
         offloadMode = "auto"
         supported = $true
-        minimumRamGiB = 16
         notes = "Generated onboarding profile. Download, calibrate, probe, and run compatibility evals before routing production Pi work here."
     }
     $config.profiles | Add-Member -NotePropertyName $Name -NotePropertyValue $entry
@@ -813,13 +809,6 @@ function Calibrate-AllProfiles {
             $name = $property.Name
             $entry = $property.Value
             if (-not $entry.supported) { continue }
-            # This host is below the documented RAM target for Q3. It remains
-            # opt-in through the single-profile command rather than risking
-            # severe paging in an unattended all-model pass.
-            if ($name -eq "kimi-linear-q3") {
-                $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "requires explicit opt-in on this host" }
-                continue
-            }
             $selected = [pscustomobject]@{ Name = $name; Config = $entry }
             if (-not (Get-LocalModel $selected)) {
                 $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "not downloaded" }
@@ -860,7 +849,7 @@ function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "a
         foreach ($property in $config.profiles.PSObject.Properties) {
             $name = $property.Name
             $entry = $property.Value
-            if (-not $entry.supported -or $name -eq "kimi-linear-q3") { continue }
+            if (-not $entry.supported) { continue }
             $selected = [pscustomobject]@{ Name = $name; Config = $entry }
             if (-not (Get-LocalModel $selected)) {
                 Write-Host "Downloading practical worker '$name'..."
@@ -874,7 +863,7 @@ function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "a
         foreach ($property in $config.profiles.PSObject.Properties) {
             $name = $property.Name
             $entry = $property.Value
-            if (-not $entry.supported -or $name -eq "kimi-linear-q3") { continue }
+            if (-not $entry.supported) { continue }
             $selected = [pscustomobject]@{ Name = $name; Config = $entry }
             if (Get-LocalModel $selected) {
                 $script:Profile = $name

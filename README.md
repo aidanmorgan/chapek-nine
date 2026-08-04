@@ -94,9 +94,8 @@ After each model download, run:
 ```
 
 To calibrate every downloaded, supported worker serially, use
-`.\harness.ps1 calibrate-all full`. It skips Kimi Q3 by default on this
-host because its documented RAM requirement exceeds the detected capacity; run
-the single-profile command to opt into that experiment.
+`.\harness.ps1 calibrate-all full`. Each installed runtime-supported model
+is measured; unsafe or unproductive candidates are rejected by calibration.
 
 For a fresh machine, `init` downloads every practical supported worker,
 calibrates and probes them serially, and starts the normal worker again:
@@ -107,12 +106,12 @@ calibrates and probes them serially, and starts the normal worker again:
 
 `init` defaults to `full auto`. The final argument is `auto` (train the coordinator only when its QLoRA adapter
 is absent), `train` (force a refresh), or `skip-training`. Skipping is refused
-when no adapter exists. K3 and Kimi Q3 remain deliberately opt-in.
+when no adapter exists. K3 remains excluded until upstream llama.cpp can load
+it; all other supported profiles are assessed by the local calibration run.
 
 The practical worker set includes Kimi Linear Q2, DeepSeek R1 Distill Qwen 14B,
 and DeepSeek Coder V2 Lite at Q4_K_M. The DeepSeek variants are approximately
-9–10 GB GGUFs intended for this 16 GiB VRAM / 31 GiB RAM configuration and are
-calibrated before routing can select them.
+9–10 GB GGUFs that are calibrated before routing can select them.
 
 Calibration appends a history entry and flags material decode-throughput
 regressions. `probe` writes a capability report under `runtime\capabilities`.
@@ -135,18 +134,9 @@ headroom. Memory already occupied by Codex and the desktop is treated as host
 overhead rather than charged to the model; a small OS/display reserve and a
 prolonged-collapse guard remain.
 
-On the test RTX 4080 SUPER (16 GiB) / 31 GiB RAM machine, the current Kimi
-Linear Q2 result keeps seven early routed-expert layers on the CPU and sends
-the later experts plus eligible dense/attention work to CUDA:
-
-```text
---fit off --n-gpu-layers all --n-cpu-moe 7
-```
-
-Measured quick-calibration throughput was about 186 prompt tokens/s and 97
-decode tokens/s. The generated `calibration.json` is machine-specific and is
-applied automatically. Dense models use llama.cpp automatic layer fitting
-instead. See [the hybrid-offload notes](docs/HYBRID-OFFLOAD.md).
+The generated `calibration.json` is machine-specific and is applied
+automatically. Dense models use llama.cpp automatic layer fitting instead. See
+[the hybrid-offload notes](docs/HYBRID-OFFLOAD.md).
 
 Native Windows CUDA is the preferred path and is verified with
 `llama-server --list-devices`; neither WSL nor a system-wide CUDA toolkit is

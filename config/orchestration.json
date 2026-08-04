@@ -6,8 +6,6 @@
   },
   "maxAssignments": 2,
   "resourceLimits": {
-    "minFreeRamGiB": 2,
-    "minFreeVramMiB": 768,
     "maxTemperatureC": 86
   },
   "coordinator": ["gemma4", "deepseek-r1-14b", "deepseek-coder-v2-lite", "glm-flash", "kimi-linear", "qwen-coder", "granite"],

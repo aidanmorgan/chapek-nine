@@ -9,7 +9,6 @@
       "context": 32768,
       "hybridMoe": true,
       "supported": false,
-      "minimumRamGiB": 1500,
       "notes": "Official checkpoint is 2.8T total / 104B active. Upstream llama.cpp has no working K3 graph/converter as of 2026-08-02. This profile is capability-gated and will become usable when a compatible GGUF and runtime land."
     },
     "kimi-linear": {
@@ -27,8 +26,7 @@
       "offloadMode": "partial-cpu-moe",
       "cpuMoeLayers": 7,
       "supported": true,
-      "minimumRamGiB": 24,
-      "notes": "Practical default for this 16 GiB VRAM / 31 GiB RAM host. The first 7 routed expert layers stay in RAM and later layers use CUDA; the 2K context avoids Windows paging on this machine."
+      "notes": "Balanced Kimi Linear profile. Calibration determines the CPU-expert split, GPU offload, and safe context on the local machine."
     },
     "kimi-linear-q3": {
       "displayName": "Kimi Linear 48B-A3B Instruct (higher-quality Q3)",
@@ -45,8 +43,7 @@
       "offloadMode": "partial-cpu-moe",
       "cpuMoeLayers": 12,
       "supported": true,
-      "minimumRamGiB": 36,
-      "notes": "Preserves the existing Q3 download for hosts with more RAM. On a 31 GiB Windows host it pages heavily; prefer kimi-linear."
+      "notes": "Higher-quality Kimi Linear quantization. The local calibration safety search determines whether it is viable."
     },
     "qwen-coder": {
       "displayName": "Qwen3 Coder 30B-A3B Instruct",
@@ -60,8 +57,7 @@
       "hybridMoe": true,
       "offloadMode": "cpu-moe",
       "supported": true,
-      "minimumRamGiB": 24,
-      "notes": "Practical coding default for 16 GiB VRAM / 32 GiB RAM. Hybrid expert placement is enabled."
+      "notes": "Coding-focused MoE profile. Calibration determines expert placement and safe serving settings."
     },
     "deepseek-r1-14b": {
       "displayName": "DeepSeek R1 Distill Qwen 14B (Q4_K_M)",
@@ -74,8 +70,7 @@
       "hybridMoe": false,
       "offloadMode": "auto",
       "supported": true,
-      "minimumRamGiB": 20,
-      "notes": "A practical 14B DeepSeek reasoning worker for this 16 GiB VRAM / 31 GiB RAM host. Init downloads the Q4_K_M GGUF and calibration chooses its safe layer placement."
+      "notes": "DeepSeek reasoning worker. Init downloads the Q4_K_M GGUF and calibration chooses safe layer placement."
     },
     "deepseek-coder-v2-lite": {
       "displayName": "DeepSeek Coder V2 Lite Instruct (Q4_K_M)",
@@ -88,8 +83,7 @@
       "hybridMoe": true,
       "offloadMode": "cpu-moe",
       "supported": true,
-      "minimumRamGiB": 20,
-      "notes": "A roughly 9 GB coding-focused DeepSeek MoE worker. It complements Qwen Coder with substantially more VRAM headroom on this host; calibration determines the final expert placement."
+      "notes": "Coding-focused DeepSeek MoE worker; calibration determines final expert placement."
     },
     "glm-flash": {
       "displayName": "GLM-4.7-Flash 30B-A3B",
@@ -106,8 +100,7 @@
       "offloadMode": "partial-cpu-moe",
       "cpuMoeLayers": 10,
       "supported": true,
-      "minimumRamGiB": 24,
-      "notes": "Strongest current GLM that fits this host: a 30B-A3B coding/agentic MoE. Calibration tunes early CPU expert layers while dense, attention, and later expert work use CUDA."
+      "notes": "GLM coding/agentic MoE profile. Calibration tunes CPU expert layers and CUDA placement."
     },
     "gemma4": {
       "displayName": "Gemma 4 E4B Instruct",
@@ -121,8 +114,7 @@
       "hybridMoe": false,
       "offloadMode": "auto",
       "supported": true,
-      "minimumRamGiB": 12,
-      "notes": "Compact Gemma 4 profile that fits fully on the RTX 4080 SUPER at the selected quantization."
+      "notes": "Compact Gemma profile; calibration determines its local placement and serving settings."
     },
     "granite": {
       "displayName": "IBM Granite 4.1 30B",
@@ -136,8 +128,7 @@
       "hybridMoe": false,
       "offloadMode": "auto",
       "supported": true,
-      "minimumRamGiB": 32,
-      "notes": "Official IBM GGUF; partial layer offload will automatically spill remaining tensors to system RAM."
+      "notes": "IBM Granite GGUF; calibration determines its local offload and memory behavior."
     }
   }
 }

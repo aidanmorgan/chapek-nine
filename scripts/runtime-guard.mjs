@@ -17,8 +17,8 @@ export function sampleResources() {
 }
 
 export function resourceDecision(sample, limits = {}) {
-  const minRamGiB = Number(limits.minFreeRamGiB ?? 2);
-  const minVramMiB = Number(limits.minFreeVramMiB ?? 768);
+  const minRamGiB = Number(limits.minFreeRamGiB ?? Math.max(0.5, Number(sample.totalRamGiB || 0) * 0.04));
+  const minVramMiB = Number(limits.minFreeVramMiB ?? Math.max(128, (sample.gpu?.totalMiB || 0) * 0.04));
   const maxTemperatureC = Number(limits.maxTemperatureC ?? 86);
   if (sample.freeRamGiB < minRamGiB) return { admit: false, reason: `free RAM ${sample.freeRamGiB.toFixed(1)} GiB is below ${minRamGiB} GiB` };
   if (sample.gpu?.freeMiB < minVramMiB) return { admit: false, reason: `free VRAM ${sample.gpu.freeMiB} MiB is below ${minVramMiB} MiB` };
