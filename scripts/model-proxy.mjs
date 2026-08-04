@@ -586,6 +586,55 @@ async function forwardCompletion(req, res, body) {
   );
 
   if (body.stream) {
+    const needsCanonicalBuffer = Boolean(body.response_format) || (
+      adapter.toolMode === "prompt" && Array.isArray(body.tools) && body.tools.length > 0
+    );
+    if (needsCanonicalBuffer) {
+      try {
+        const raw = await response.text();
+        let id = `chatcmpl_${crypto.randomBytes(12).toString("hex")}`;
+        let created = Math.floor(Date.now() / 1000);
+        let content = "";
+        for (const line of raw.split(/\r?\n/)) {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            id = event.id || id;
+            created = event.created || created;
+            content += messageText(event.choices?.[0]?.delta?.content);
+          } catch {}
+        }
+        const canonical = adaptResponse({
+          id,
+          object: "chat.completion",
+          created,
+          model: route.model,
+          choices: [{ index: 0, message: { role: "assistant", content } }],
+        }, publicModel, adapter, body);
+        const message = canonical.choices[0].message;
+        const delta = message.tool_calls?.length
+          ? { role: "assistant", tool_calls: message.tool_calls }
+          : { role: "assistant", content: message.content || "" };
+        res.writeHead(response.status, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+        res.end(
+          `data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: publicModel, choices: [{ index: 0, delta }] })}\n\ndata: [DONE]\n\n`,
+        );
+        await slotAction("save", route.model, affinity.id);
+        metrics.state.cacheSaves += 1;
+        saveTaskState(taskStateDir, affinity.id, route.model, body.messages, message.content);
+        metrics.record(route.model, performance.now() - started);
+        runtimeState.complete(route.model, { latencyMs: performance.now() - started });
+        otelDuration.record(performance.now() - started, { model: route.model, stream: "true" });
+        requestSpan.end();
+      } finally {
+        req.off("aborted", abort);
+      }
+      return;
+    }
     res.writeHead(response.status, {
       "Content-Type": response.headers.get("content-type") || "text/event-stream",
       "Cache-Control": "no-cache",

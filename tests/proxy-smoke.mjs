@@ -77,12 +77,15 @@ const mock = http.createServer(async (req, res) => {
     requests.push(payload);
     if (payload.stream) {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const promptToolAdapter = payload.messages.some(
+        (message) => typeof message.content === "string" && message.content.includes("<tool_call>"),
+      );
       res.end(
         `data: ${JSON.stringify({
           id: "mock",
           object: "chat.completion.chunk",
           model: payload.model,
-          choices: [{ index: 0, delta: { content: "STREAM OK" } }],
+          choices: [{ index: 0, delta: { content: promptToolAdapter ? '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>' : "STREAM OK" } }],
         })}\n\ndata: [DONE]\n\n`,
       );
     } else {
@@ -233,6 +236,25 @@ try {
   assert.equal(finalRequest.messages[0].role, "system");
   assert.match(finalRequest.messages[0].content, /Use tools carefully/);
   assert.equal(finalRequest.model, "qwen-coder");
+
+  const streamedTool = await fetch(
+    `http://127.0.0.1:${proxyPort}/v1/chat/completions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "chapek-nine",
+        messages: [{ role: "user", content: "Use the available tool." }],
+        tools,
+        stream: true,
+      }),
+    },
+  );
+  assert.equal(streamedTool.status, 200);
+  const streamedToolText = await streamedTool.text();
+  assert.match(streamedToolText, /"tool_calls"/);
+  assert.match(streamedToolText, /"read_file"/);
+  assert.doesNotMatch(streamedToolText, /<tool_call>/);
 
   const beforeSimple = requests.length;
   const simple = await fetch(
