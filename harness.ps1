@@ -887,7 +887,8 @@ function Verify-Profile {
     $output | ForEach-Object { Write-Host $_ }
     $promptTps = if ($text -match "Prompt:\s*([0-9.]+)\s*t/s") { [double]$Matches[1] } else { $null }
     $generationTps = if ($text -match "Generation:\s*([0-9.]+)\s*t/s") { [double]$Matches[1] } else { $null }
-    $passed = $exitCode -eq 0 -and $text -match "(?m)^\s*LOCAL CUDA OK\s*$"
+    $verificationPattern = Get-EffectiveValue $selected "verificationPattern" "(?m)^\s*LOCAL CUDA OK\s*$"
+    $passed = $exitCode -eq 0 -and $text -match $verificationPattern
     $reportDir = Join-Path $RuntimeDir "verification"
     New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
     $report = [ordered]@{
@@ -900,7 +901,7 @@ function Verify-Profile {
         exitCode = $exitCode
         promptTps = $promptTps
         generationTps = $generationTps
-        expected = "LOCAL CUDA OK"
+        expected = $verificationPattern
         outputTail = $text.Substring([math]::Max(0, $text.Length - 4000))
         artifact = (Get-Content -Raw -LiteralPath $localModel.ManifestPath | ConvertFrom-Json)
     }
