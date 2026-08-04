@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute, taskText } from "./deterministic-router.mjs";
 import { createRuntimeState } from "./runtime-state.mjs";
+import { createScheduler } from "./scheduler.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
 import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState } from "./context-state.mjs";
@@ -91,8 +92,8 @@ function configWithEvalRankings(config, reportPath) {
 }
 
 const config = configWithEvalRankings(baseConfig, routingEvalsPath);
-let queue = Promise.resolve();
 let queueDepth = 0;
+const scheduler = createScheduler({ maxDepth: Number(config.maxQueueDepth || 8) });
 const metrics = createRuntimeMetrics();
 
 function log(message) {
@@ -650,12 +651,9 @@ async function readJson(req) {
 function enqueue(work) {
   const queuedAt = performance.now();
   queueDepth += 1;
-  const wrapped = async () => {
+  return scheduler.submit(async () => {
     try { otelQueueWait.record(performance.now() - queuedAt); return await work(); } finally { queueDepth -= 1; }
-  };
-  const result = queue.then(wrapped, wrapped);
-  queue = result.catch(() => {});
-  return result;
+  });
 }
 
 const server = http.createServer(async (req, res) => {
