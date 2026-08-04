@@ -10,6 +10,8 @@ import { withRecovery } from "./recovery-controller.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources, waitForAdmission } from "./runtime-guard.mjs";
 import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, recovery as otelRecovery, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState, statePrompt } from "./context-state.mjs";
+import { artifactIdentity } from "./domain/model-readiness.mjs";
+import { hasCurrentEvaluationEvidence } from "./domain/evaluation-evidence.mjs";
 import {
   adaptRequest,
   adaptResponse,
@@ -18,6 +20,7 @@ import {
 } from "./model-adapters.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const modelsDir = path.resolve(process.env.KIMI_MODELS_DIR || path.join(root, "models"));
 const baseConfig = JSON.parse(
   fs.readFileSync(path.join(root, "config", "orchestration.json"), "utf8"),
 );
@@ -83,6 +86,13 @@ function configWithEvalRankings(config, reportPath) {
   if (!reportPath || !fs.existsSync(reportPath)) return output;
   try {
     const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    const current = Object.fromEntries((report.models || []).map((id) => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(modelsDir, id, "manifest.json"), "utf8"));
+        return [id, artifactIdentity(manifest)];
+      } catch { return [id, null]; }
+    }));
+    if (!hasCurrentEvaluationEvidence(report, current)) throw new Error("evaluation evidence does not match current model artifacts");
     for (const [role, rankings] of Object.entries(report.roleScores || {})) {
       if (!output.roles[role] || !Array.isArray(rankings)) continue;
       const measured = rankings.map((item) => item.model);

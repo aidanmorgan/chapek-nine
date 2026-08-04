@@ -8,8 +8,10 @@ import {
 import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
 import { classifyRequest } from "./deterministic-router.mjs";
 import { assignUtilities, calibratedHeadroom } from "./routing-objective.mjs";
+import { artifactIdentity } from "./domain/model-readiness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const modelsDir = path.resolve(process.env.KIMI_MODELS_DIR || path.join(root, "models"));
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(
   /\/+$/,
   "",
@@ -132,6 +134,12 @@ const models = (await catalog(true))
   .map((model) => model.id)
   .filter((id) => eligibleProfiles.has(id));
 if (!models.length) throw new Error("No models are present in llama.cpp catalog.");
+const modelArtifacts = Object.fromEntries(models.map((id) => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(modelsDir, id, "manifest.json"), "utf8"));
+  const artifact = artifactIdentity(manifest);
+  if (!artifact) throw new Error(`Model ${id} has no valid local manifest.`);
+  return [id, artifact];
+}));
 if (!["quick", "full"].includes(mode)) {
   throw new Error("Eval mode must be 'quick' or 'full'.");
 }
@@ -291,6 +299,7 @@ const report = {
   routingObjective: objective,
   mode,
   models,
+  modelArtifacts,
   taskCount: tasks.length,
   rankings,
   roleScores,

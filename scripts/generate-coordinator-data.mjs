@@ -4,8 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute } from "./deterministic-router.mjs";
 import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
+import { artifactIdentity } from "./domain/model-readiness.mjs";
+import { hasCurrentEvaluationEvidence } from "./domain/evaluation-evidence.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const modelsDir = path.resolve(process.env.KIMI_MODELS_DIR || path.join(root, "models"));
 const outputDir =
   process.argv[2] || path.join(root, "training", "data", "coordinator");
 const evalReportPath =
@@ -22,6 +25,10 @@ function rankedConfig() {
   const config = structuredClone(baseConfig);
   if (!fs.existsSync(evalReportPath)) return config;
   const report = JSON.parse(fs.readFileSync(evalReportPath, "utf8"));
+  const current = Object.fromEntries(Object.keys(report.modelArtifacts || {}).map((id) => {
+    try { return [id, artifactIdentity(JSON.parse(fs.readFileSync(path.join(modelsDir, id, "manifest.json"), "utf8")))]; } catch { return [id, null]; }
+  }));
+  if (!hasCurrentEvaluationEvidence(report, current)) return config;
   for (const [role, rows] of Object.entries(report.roleScores || {})) {
     if (!config.roles[role]) continue;
     config.roles[role] = [
