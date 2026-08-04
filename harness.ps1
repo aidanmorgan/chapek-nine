@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -431,6 +431,15 @@ function Run-Experiment {
         & node (Join-Path $Root "scripts\experiment.mjs") record $RuntimeDir $name
     }
     if ($LASTEXITCODE -ne 0) { throw "Experiment command failed." }
+}
+
+function Update-ModelCatalogue {
+    $profiles = (Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json).profiles
+    $repos = @($profiles.PSObject.Properties | ForEach-Object { $_.Value.repo } | Where-Object { $_ } | Sort-Object -Unique)
+    if (-not $repos.Count) { Write-Host "No upstream GGUF repositories are configured."; return }
+    & node (Join-Path $Root "scripts\model-catalogue.mjs") (Join-Path $RuntimeDir "model-catalogue.json") @repos
+    if ($LASTEXITCODE -ne 0) { throw "Model catalogue update failed." }
+    Write-Host "Upstream model catalogue refreshed in $RuntimeDir."
 }
 
 function Test-AdapterConformance {
@@ -873,6 +882,9 @@ function Calibrate-AllProfiles {
 
 function Initialize-AllModels {
     Install-Harness
+    # A catalogue refresh is advisory: discovery failures are recorded in the
+    # runtime report and never prevent an already-configured local setup.
+    Update-ModelCatalogue
     $config = Read-Profiles
     $savedProfile = $script:Profile
     $savedValue = $script:Value
@@ -1342,6 +1354,7 @@ switch ($Command) {
     "onboard" { New-OnboardProfile $Profile $Value $Extra }
     "quant" { New-QuantVariant $Profile $Value }
     "quant-report" { & node (Join-Path $Root "scripts\quant-report.mjs") $RuntimeDir }
+    "catalogue" { Update-ModelCatalogue }
     "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
@@ -1394,6 +1407,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 onboard <name> <owner/repo> <quant>
   .\harness.ps1 quant <profile> <quant>
   .\harness.ps1 quant-report
+  .\harness.ps1 catalogue
   .\harness.ps1 sandbox [node-unit]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
