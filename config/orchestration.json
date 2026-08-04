@@ -5,6 +5,7 @@
     "description": "Zero-load capability and difficulty classifier. Simple and tool-continuation turns route directly; only complex tasks spawn complementary workers."
   },
   "maxAssignments": 2,
+  "maxQueueDepth": 8,
   "resourceLimits": {
     "maxTemperatureC": 86
   },

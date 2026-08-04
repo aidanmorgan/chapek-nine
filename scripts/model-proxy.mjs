@@ -668,6 +668,10 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
+      if (queueDepth >= Number(config.maxQueueDepth || 8)) {
+        sendJson(res, 429, { error: { message: "Local model queue is at capacity; retry shortly.", type: "rate_limit_error" } });
+        return;
+      }
       await enqueue(() => forwardCompletion(req, res, body));
       return;
     }

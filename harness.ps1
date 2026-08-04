@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -407,6 +407,41 @@ function New-OnboardProfile([string]$Name, [string]$Repo, [string]$Quant) {
     $config.profiles | Add-Member -NotePropertyName $Name -NotePropertyValue $entry
     Write-Profiles $config
     Write-Host "Created '$Name'. Next: download, calibrate, probe, then evaluate it before using it in routing."
+}
+
+function New-QuantVariant([string]$Name, [string]$Quant) {
+    if (-not $Name -or -not $Quant) { throw "Usage: .\harness.ps1 quant <profile> <quant>" }
+    $config = Read-Profiles; $source = $config.profiles.PSObject.Properties[$Name]
+    if (-not $source) { throw "Unknown profile '$Name'." }
+    $variant = "$Name-$($Quant.ToLowerInvariant() -replace '[^a-z0-9]+','-')".Trim('-')
+    if (-not $config.profiles.PSObject.Properties[$variant]) {
+        $copy = $source.Value | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+        $copy.quant = $Quant; $copy.displayName = "$($source.Value.displayName) ($Quant)"; $copy.PSObject.Properties.Remove('file'); $copy.PSObject.Properties.Remove('sizeBytes'); $copy.PSObject.Properties.Remove('sha256')
+        $config.profiles | Add-Member -NotePropertyName $variant -NotePropertyValue $copy
+        Write-Profiles $config
+    }
+    Write-Host "Created quant variant '$variant'. Run: .\harness.ps1 init"
+}
+
+function Run-Experiment {
+    if ($Profile -eq "compare") {
+        & node (Join-Path $Root "scripts\experiment.mjs") compare $RuntimeDir $Value $Extra
+    } else {
+        $name = if ($Value) { $Value } else { "routing" }
+        & node (Join-Path $Root "scripts\experiment.mjs") record $RuntimeDir $name
+    }
+    if ($LASTEXITCODE -ne 0) { throw "Experiment command failed." }
+}
+
+function Test-AdapterConformance {
+    & node (Join-Path $Root "scripts\adapter-conformance.mjs")
+    if ($LASTEXITCODE -ne 0) { throw "Adapter conformance failed." }
+}
+
+function Improve-Coordinator {
+    $script:Value = "full"; Run-RoutingEvals
+    Train-Coordinator
+    Evaluate-Coordinator
 }
 
 function Start-BackgroundDownload {
@@ -1307,6 +1342,7 @@ switch ($Command) {
     "use" { Set-Profile $Profile }
     "add" { Add-ProfileRepo $Profile $Value $Extra }
     "onboard" { New-OnboardProfile $Profile $Value $Extra }
+    "quant" { New-QuantVariant $Profile $Value }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
@@ -1327,6 +1363,8 @@ switch ($Command) {
     }
     "calibration-status" { Show-CalibrationStatus }
     "probe" { Probe-Profile }
+    "conformance" { Test-AdapterConformance }
+    "experiment" { Run-Experiment }
     "evals" {
         # `evals quick|full` has no profile operand; shift the positional mode
         # before Start-Server resolves the selected worker profile.
@@ -1338,6 +1376,7 @@ switch ($Command) {
     }
     "train-coordinator" { Train-Coordinator }
     "evaluate-coordinator" { Evaluate-Coordinator }
+    "improve-coordinator" { Improve-Coordinator }
     "smoke" { Test-PiProfile }
     "bootstrap" { Bootstrap-Harness }
     "start" { Start-Server }
@@ -1354,6 +1393,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 use <kimi-linear|kimi-linear-q3|kimi-k3|qwen-coder|glm-flash|gemma4|granite>
   .\harness.ps1 add <profile> <owner/repo> [quant]
   .\harness.ps1 onboard <name> <owner/repo> <quant>
+  .\harness.ps1 quant <profile> <quant>
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
   .\harness.ps1 download-background [profile]
@@ -1363,8 +1403,12 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 init [quick|full] [auto|train|skip-training]
   .\harness.ps1 calibration-status [profile]
   .\harness.ps1 probe [profile]
+  .\harness.ps1 conformance
+  .\harness.ps1 experiment [record] [name]
+  .\harness.ps1 experiment compare <run-a.json> <run-b.json>
   .\harness.ps1 evals [profile] [quick|full]
   .\harness.ps1 evaluate-coordinator
+  .\harness.ps1 improve-coordinator
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]
