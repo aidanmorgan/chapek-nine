@@ -8,7 +8,7 @@ Conductor work trains a Qwen2.5-family coordinator to select workers, write
 focused subtasks, and specify which previous outputs each step may see.
 
 Chapek Nine preserves the most useful boundary—a single model API—while
-adapting execution to one 16 GiB GPU:
+adapting execution to the CPU, RAM, GPU, and VRAM discovered during `init`:
 
 ```text
 Pi -> chapek-nine front door (:8090)
@@ -34,7 +34,9 @@ work, then assigns simple, moderate, or high complexity:
   inside Pi's agent loop;
 - moderate turns may call one complementary specialist;
 - high-complexity turns may call at most the configured assignment limit;
-- only profiles already present in llama.cpp's local catalog are eligible;
+- only artifact-verified profiles already present in llama.cpp's local catalog
+  can be admitted; public workers require the full Pi protocol contract, while
+  internal specialists require their smaller recorded specialist contract;
 - routing never downloads a model or calls a remote inference API.
 
 Default role preferences are stored in `config\orchestration.json`. Measured
@@ -92,8 +94,10 @@ algorithms, and agentic tool use.
 
 The runner tests every downloaded worker through the llama.cpp router and
 records required/forbidden criteria, latency, and prompt/decode throughput.
-The result influences both runtime role order and the next generated
-coordinator dataset.
+Long runs checkpoint each completed `(model, task, output budget)` record with
+the exact suite and artifact identities, and resume only when that identity
+still matches. The result influences both runtime role order and the next
+generated coordinator dataset.
 
 ## Model-family request adapters
 
@@ -105,7 +109,9 @@ coordinator dataset.
 - tool name and JSON Schema cleanup;
 - removal of unsupported request fields;
 - `max_completion_tokens`/`max_tokens` translation and context clamping;
-- tool-call IDs and JSON argument strings; and
+- tool-call IDs and JSON argument strings;
+- explicit text-protocol tool-call translation for workers without native
+  OpenAI tool calls; and
 - public model identity in responses and SSE chunks.
 
 Adding another llama.cpp-compatible worker generally requires one profile,

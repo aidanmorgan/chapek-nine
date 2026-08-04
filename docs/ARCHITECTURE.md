@@ -10,8 +10,9 @@ The bounded contexts are deliberately small and independently testable:
 - **Routing** (`deterministic-router`, `routing-objective`, `scheduler`) turns
   a Pi request into a constrained worker plan.
 - **Model lifecycle** (`calibration-search`, `probe-model`, `domain/model-readiness`)
-  owns measured evidence and eligibility. A worker is eligible only after its
-  artifact manifest, CUDA verification, calibration, and capability probe pass.
+  owns measured evidence and admission. A public worker must pass its artifact
+  manifest, CUDA verification, calibration, and complete Pi protocol probe;
+  an internal specialist has a narrower, explicitly recorded contract.
 - **Inference interoperability** (`model-adapters`, `context-state`) translates
   between Pi's canonical protocol and individual worker quirks while preserving
   the canonical transcript.

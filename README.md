@@ -40,7 +40,8 @@ under `runtime\verification`. A zero process exit code alone is not accepted:
 the worker must emit the required verification token.
 
 `readiness` writes and prints the admission report used by the front door. It
-shows exactly why any installed worker is not yet eligible to receive Pi work.
+separates public Pi-worker admission from internal-specialist admission and
+shows exactly why an installed worker is not admitted to either role.
 Verification and probing refresh this report automatically; a successful probe
 also restarts only the front door when its admission set changes.
 All lifecycle evidence is bound to the downloaded manifest (repository, quant,
