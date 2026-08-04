@@ -52,7 +52,6 @@ Models and generated runtime data can live on another disk:
 ```powershell
 $env:KIMI_MODELS_DIR = "D:\chapek-models"
 $env:KIMI_RUNTIME_DIR = "D:\chapek-runtime"
-.\harness.ps1 bootstrap
 ```
 
 ## One public model, private orchestration
@@ -241,7 +240,6 @@ evals [quick|full]            Rank installed workers on developer tasks
 train-coordinator             Generate data and train/convert coordinator LoRA
 evaluate-coordinator          Gate learned routing on held-out data
 smoke [profile]               Prove router, front door, streaming, and Pi
-bootstrap [profile]           Complete first-run workflow
 start [profile]               Start router, coordinator, and front door
 pi [profile]                  Start services and launch Pi on chapek-nine
 status                        Show managed service state

@@ -12,7 +12,7 @@ const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 fs.mkdirSync(outputDir, { recursive: true });
 
-// Only one process may mutate a profile's partial file. A second bootstrap
+// Only one process may mutate a profile's partial file. A second invocation
 // waits for the active owner instead of opening the same byte ranges twice.
 const lockPath = path.join(outputDir, ".download.lock");
 let ownsLock = false;

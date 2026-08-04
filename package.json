@@ -5,7 +5,6 @@
   "description": "Pi engineering harness backed by llama.cpp CPU/GPU hybrid inference",
   "scripts": {
     "setup": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 setup",
-    "bootstrap": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 bootstrap",
     "doctor": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 doctor",
     "materialize-evals": "node ./scripts/materialize-developer-task-suite.mjs",
     "sandbox": "node ./scripts/eval-sandbox.mjs",

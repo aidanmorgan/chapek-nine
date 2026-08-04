@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "calibration-status", "readiness", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "calibration-status", "readiness", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -1090,25 +1090,6 @@ function Evaluate-Coordinator {
     elseif ($LASTEXITCODE -ne 0) { throw "Coordinator evaluation failed." }
 }
 
-function Bootstrap-Harness {
-    Install-Harness
-    Verify-Profile
-    $selected = Get-SelectedProfile
-    if (-not (Get-CalibratedSettings $selected)) {
-        Calibrate-Profile
-    }
-    if (-not (Get-CoordinatorBaseModel)) {
-        $null = Download-Coordinator
-    }
-    $coordinatorConfig = Read-CoordinatorConfig
-    $coordinatorAdapter = Join-Path $RuntimeDir $coordinatorConfig.adapter
-    if (-not (Test-Path -LiteralPath $coordinatorAdapter)) {
-        Train-Coordinator
-    }
-    Test-PiProfile
-    Write-Host "Bootstrap complete. Launch Pi with: .\harness.ps1 pi $($selected.Name)"
-}
-
 function Start-Server {
     $selected = Get-SelectedProfile
     Assert-ProfileCapacity $selected
@@ -1524,7 +1505,6 @@ switch ($Command) {
     "improve-coordinator" { Improve-Coordinator }
     "coordinator-autopilot" { Invoke-CoordinatorAutopilot }
     "smoke" { Test-PiProfile }
-    "bootstrap" { Bootstrap-Harness }
     "start" { Start-Server }
     "pi" { Start-Pi }
     "status" { Show-Doctor; if (Test-Path $StatePath) { Get-Content -Raw $StatePath } }
@@ -1544,7 +1524,6 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 catalogue
   .\harness.ps1 discover
   .\harness.ps1 sandbox [node-unit|python-unit|powershell-unit] [candidate-file]
-  .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
   .\harness.ps1 download-all
   .\harness.ps1 download-background [profile]
