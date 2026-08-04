@@ -288,7 +288,7 @@ function Install-Harness {
     try {
         & npm install --ignore-scripts
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Project-local Pi install failed. The launcher will use npm exec as a fallback."
+            throw "Project-local Pi installation failed. Resolve npm installation before launching the harness."
         }
     } finally { Pop-Location }
     if (-not (Find-LlamaServer)) {
@@ -1398,12 +1398,8 @@ function Invoke-PiLauncher($Selected, $LocalModel, [string[]]$AdditionalArgs = @
             "--api-key", "local"
         )
         $piArgs += $AdditionalArgs
-        if (Test-Path $pi) {
-            & $pi @piArgs
-        } else {
-            Write-Host "Using pinned Pi through npm exec (project-local install is unavailable)."
-            & npm exec --yes --package="@earendil-works/pi-coding-agent@^0.81.0" -- pi @piArgs
-        }
+        if (-not (Test-Path $pi)) { throw "Project-local Pi executable is missing. Run: .\harness.ps1 setup" }
+        & $pi @piArgs
         if ($LASTEXITCODE -ne 0) { throw "Pi exited with code $LASTEXITCODE." }
     } finally { Pop-Location }
 }
