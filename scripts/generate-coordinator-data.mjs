@@ -45,9 +45,12 @@ const routable = new Set([
   ...config.synthesizer,
   ...Object.values(config.roles).flat(),
 ]);
-const allModels = Object.entries(profiles.profiles)
+const specialistModels = Object.entries(profiles.profiles)
   .filter(([id, profile]) => profile.supported && routable.has(id))
   .map(([id]) => id);
+const publicModels = specialistModels.filter(
+  (id) => profiles.profiles[id].admission !== "specialist",
+);
 const prefixes = [
   "",
   "Developer request:\n",
@@ -64,23 +67,26 @@ const suffixes = [
 ];
 
 function availableSets(index) {
-  const rotated = allModels.map(
-    (_, offset) => allModels[(index + offset) % allModels.length],
+  const rotatedPublic = publicModels.map(
+    (_, offset) => publicModels[(index + offset) % publicModels.length],
+  );
+  const rotatedSpecialist = specialistModels.map(
+    (_, offset) => specialistModels[(index + offset) % specialistModels.length],
   );
   return [
-    allModels,
-    rotated.slice(0, Math.max(1, allModels.length - 1)),
-    rotated.slice(0, Math.min(2, allModels.length)),
-    [rotated[0]],
+    { publicWorkers: publicModels, specialistWorkers: specialistModels },
+    { publicWorkers: rotatedPublic.slice(0, Math.max(1, publicModels.length - 1)), specialistWorkers: rotatedSpecialist },
+    { publicWorkers: rotatedPublic.slice(0, Math.min(2, publicModels.length)), specialistWorkers: rotatedSpecialist.slice(0, Math.min(3, specialistModels.length)) },
+    { publicWorkers: [rotatedPublic[0]], specialistWorkers: [rotatedPublic[0]] },
   ];
 }
 
-function capabilities(models) {
-  return models.map((id) => {
+function capabilities(publicWorkers, specialistWorkers) {
+  return [...new Set([...publicWorkers, ...specialistWorkers])].map((id) => {
     const roles = Object.entries(config.roles)
       .filter(([, candidates]) => candidates.includes(id))
       .map(([role]) => role);
-    return { id, roles };
+    return { id, roles, admission: publicWorkers.includes(id) ? "public" : "specialist" };
   });
 }
 
@@ -114,23 +120,26 @@ const examples = [];
 for (let taskIndex = 0; taskIndex < suite.tasks.length; taskIndex += 1) {
   const task = suite.tasks[taskIndex];
   for (let variant = 0; variant < 20; variant += 1) {
-    const models = availableSets(taskIndex + variant)[variant % 4];
+    const availability = availableSets(taskIndex + variant)[variant % 4];
     const prompt =
       prefixes[variant % prefixes.length] +
       task.prompt +
       suffixes[Math.floor(variant / prefixes.length) % suffixes.length];
     const body = { messages: [{ role: "user", content: prompt }] };
-    const decision = chooseRoute(body, config, new Set(models));
+    const decision = chooseRoute(body, config, {
+      publicWorkers: new Set(availability.publicWorkers),
+      specialistWorkers: new Set(availability.specialistWorkers),
+    });
     const user = JSON.stringify({
       task: prompt,
       categoryHint: task.category,
-      availableWorkers: capabilities(models),
+      availableWorkers: capabilities(availability.publicWorkers, availability.specialistWorkers),
       maxSteps: config.maxAssignments,
     });
     const assistant = JSON.stringify(label(decision));
     const id = crypto
       .createHash("sha256")
-      .update(`${task.id}\0${variant}\0${models.join(",")}`)
+      .update(`${task.id}\0${variant}\0${availability.publicWorkers.join(",")}\0${availability.specialistWorkers.join(",")}`)
       .digest("hex");
     examples.push({
       id,

@@ -110,7 +110,7 @@ export function chooseRoute(body, config, availability) {
   if (
     classification.continuation ||
     classification.tier === "simple" ||
-    publicWorkers.size === 1
+    publicWorkers.size === 1 && specialistWorkers.size === 1
   ) {
     return {
       model,

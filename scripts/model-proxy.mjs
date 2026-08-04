@@ -312,7 +312,7 @@ async function internalChat(model, system, user, maxTokens) {
   otelWorker.record(performance.now() - workerStarted, { model, role: "specialist" }); return text;
 }
 
-function validLearnedDecision(value, available, fallback) {
+function validLearnedDecision(value, availability, fallback) {
   if (!value || value.version !== 1) return null;
   if (!["simple", "moderate", "high"].includes(value.tier)) return null;
   if (
@@ -320,7 +320,7 @@ function validLearnedDecision(value, available, fallback) {
     !["general", "analyst", "implementer", "reviewer"].includes(
       value.primary.role,
     ) ||
-    !available.has(value.primary.model)
+    !availability.publicWorkers.has(value.primary.model)
   ) {
     return null;
   }
@@ -337,7 +337,7 @@ function validLearnedDecision(value, available, fallback) {
     if (
       !step ||
       !config.roles[step.role] ||
-      !available.has(step.model) ||
+      !availability.specialistWorkers.has(step.model) ||
       step.model === value.primary.model ||
       typeof step.instruction !== "string" ||
       step.instruction.length < 8
@@ -370,13 +370,17 @@ function validLearnedDecision(value, available, fallback) {
   };
 }
 
-async function learnedRoute(body, available, fallback) {
+async function learnedRoute(body, availability, fallback) {
   if (!coordinatorUrl || fallback.classification.continuation || !coordinatorPromotionApproved()) return null;
-  const workers = [...available].map((id) => ({
+  const workers = [...new Set([
+    ...availability.publicWorkers,
+    ...availability.specialistWorkers,
+  ])].map((id) => ({
     id,
     roles: Object.entries(config.roles)
       .filter(([, candidates]) => candidates.includes(id))
       .map(([role]) => role),
+    admission: availability.publicWorkers.has(id) ? "public" : "specialist",
   }));
   try {
     const response = await fetch(`${coordinatorUrl}/v1/chat/completions`, {
@@ -413,7 +417,7 @@ async function learnedRoute(body, available, fallback) {
     const result = await response.json();
     const text = messageText(result.choices?.[0]?.message?.content);
     const parsed = JSON.parse(text);
-    const decision = validLearnedDecision(parsed, available, fallback);
+    const decision = validLearnedDecision(parsed, availability, fallback);
     if (!decision) log(`rejected coordinator plan: ${text.slice(0, 2000)}`);
     return decision;
   } catch (error) {
@@ -438,7 +442,7 @@ async function prepareRoute(body) {
 
   const deterministic = chooseRoute(body, config, { publicWorkers, specialistWorkers });
   const decision =
-    (await learnedRoute(body, publicWorkers, deterministic)) || {
+    (await learnedRoute(body, { publicWorkers, specialistWorkers }, deterministic)) || {
       ...deterministic,
       policy: "deterministic",
     };

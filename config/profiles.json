@@ -72,6 +72,7 @@
       "cacheTypeV": "q8_0",
       "hybridMoe": false,
       "offloadMode": "auto",
+      "admission": "specialist",
       "supported": true,
       "notes": "DeepSeek reasoning worker. Init downloads the Q4_K_M GGUF and calibration chooses safe layer placement."
     },
