@@ -670,6 +670,11 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, runtimeState.snapshot());
       return;
     }
+    if (req.method === "GET" && url.pathname === "/dashboard") {
+      const page = `<!doctype html><title>Chapek Nine</title><pre id="view">loading…</pre><script>setInterval(async()=>{document.querySelector('#view').textContent=JSON.stringify(await (await fetch('/runtime')).json(),null,2)},1000)</script>`;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(page);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/metrics") {
       const resource = sampleResources();
       setResourceGauges(resource, queueDepth);
