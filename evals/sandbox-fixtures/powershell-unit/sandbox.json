@@ -1,0 +1,4 @@
+{
+  "command": ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", "solution.tests.ps1"],
+  "candidate": "solution.ps1"
+}

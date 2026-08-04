@@ -1376,7 +1376,7 @@ switch ($Command) {
     "quant" { New-QuantVariant $Profile $Value }
     "quant-report" { & node (Join-Path $Root "scripts\quant-report.mjs") $RuntimeDir }
     "catalogue" { Update-ModelCatalogue }
-    "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) }
+    "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) $Value }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
@@ -1430,7 +1430,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 quant <profile> <quant>
   .\harness.ps1 quant-report
   .\harness.ps1 catalogue
-  .\harness.ps1 sandbox [node-unit]
+  .\harness.ps1 sandbox [node-unit|python-unit|powershell-unit] [candidate-file]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
   .\harness.ps1 download-background [profile]

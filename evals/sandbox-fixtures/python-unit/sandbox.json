@@ -1,0 +1,4 @@
+{
+  "command": ["python", "-m", "unittest", "-q", "solution_test.py"],
+  "candidate": "solution.py"
+}
