@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -386,6 +386,37 @@ function Download-Profile {
     & node (Join-Path $Root "scripts\download-hf.mjs") $selected.Config.repo $selected.Config.quant $profileDir
     if ($LASTEXITCODE -ne 0) { throw "Verified model download failed with exit code $LASTEXITCODE." }
     Write-Host "Model is ready under $profileDir."
+}
+
+function Download-AllProfiles {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw "Node is required for verified model downloads." }
+    $config = Read-Profiles
+    $savedProfile = $script:Profile
+    $results = @()
+    try {
+        foreach ($property in $config.profiles.PSObject.Properties) {
+            $name = $property.Name
+            $entry = $property.Value
+            if (-not $entry.supported) {
+                Write-Warning "Skipping capability-gated profile '$name': $($entry.notes)"
+                $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "capability-gated" }
+                continue
+            }
+            $script:Profile = $name
+            try {
+                Download-Profile
+                $results += [pscustomobject]@{ profile = $name; status = "ready"; reason = "verified" }
+            } catch {
+                Write-Warning "Download failed for '$name': $($_.Exception.Message)"
+                $results += [pscustomobject]@{ profile = $name; status = "failed"; reason = $_.Exception.Message }
+            }
+        }
+    } finally {
+        $script:Profile = $savedProfile
+    }
+    $results | Format-Table -AutoSize | Out-Host
+    $failed = @($results | Where-Object { $_.status -eq "failed" }).Count
+    if ($failed) { throw "$failed configured model download(s) failed." }
 }
 
 function New-OnboardProfile([string]$Name, [string]$Repo, [string]$Quant) {
@@ -1419,6 +1450,7 @@ switch ($Command) {
     "discover" { Find-UpstreamCodingModels }
     "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) $Value }
     "download" { Download-Profile }
+    "download-all" { Download-AllProfiles }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
     "calibrate" { Calibrate-Profile }
@@ -1475,6 +1507,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 sandbox [node-unit|python-unit|powershell-unit] [candidate-file]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
+  .\harness.ps1 download-all
   .\harness.ps1 download-background [profile]
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]

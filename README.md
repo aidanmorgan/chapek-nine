@@ -26,6 +26,14 @@ transient timeouts or early CDN EOFs without a cumulative time limit. A
 per-profile lock prevents concurrent writers, and a valid older cache file is
 adopted by NTFS hard link when possible.
 
+To ensure every practical configured worker is present, use the sequential,
+resumable verified download command. Capability-gated profiles such as Kimi K3
+are reported as skipped rather than treated as failures.
+
+```powershell
+.\harness.ps1 download-all
+```
+
 Models and generated runtime data can live on another disk:
 
 ```powershell
