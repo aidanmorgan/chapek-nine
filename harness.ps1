@@ -871,11 +871,7 @@ function Calibrate-AllProfiles {
     Start-Server
 }
 
-function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "auto") {
-    if ($Mode -notin @("quick", "full")) { throw "Initialization mode must be 'quick' or 'full'." }
-    if ($TrainingMode -notin @("auto", "train", "skip-training")) {
-        throw "Training mode must be auto, train, or skip-training."
-    }
+function Initialize-AllModels {
     Install-Harness
     $config = Read-Profiles
     $savedProfile = $script:Profile
@@ -893,7 +889,7 @@ function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "a
             }
         }
         $script:Profile = $null
-        $script:Value = $Mode
+        $script:Value = "full"
         Calibrate-AllProfiles
         foreach ($property in $config.profiles.PSObject.Properties) {
             $name = $property.Name
@@ -912,14 +908,16 @@ function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "a
     $coordinatorConfig = Read-CoordinatorConfig
     $adapter = Join-Path $RuntimeDir $coordinatorConfig.adapter
     $mustTrain = -not (Test-Path -LiteralPath $adapter)
-    if ($mustTrain -and $TrainingMode -eq "skip-training") {
-        Write-Warning "No coordinator QLoRA adapter exists; training is mandatory and will proceed."
-    }
-    if ($mustTrain -or $TrainingMode -eq "train") {
+    Test-AdapterConformance
+    $script:Value = "full"
+    Run-RoutingEvals
+    Run-Experiment
+    if ($mustTrain) {
         Train-Coordinator
     }
     Start-Server
-    Write-Host "All practical local workers are initialized. Next run: .\harness.ps1 evals full"
+    Evaluate-Coordinator
+    Write-Host "Chapek Nine is initialized, measured, and running. Launch Pi with: .\harness.ps1 pi"
 }
 
 function Show-CalibrationStatus {
@@ -1352,9 +1350,8 @@ switch ($Command) {
         Calibrate-AllProfiles
     }
     "init" {
-        $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
-        $trainingMode = if ($Value) { $Value.ToLowerInvariant() } else { "auto" }
-        Initialize-AllModels $initMode $trainingMode
+        if ($Profile -or $Value -or $Extra) { throw "Usage: .\harness.ps1 init" }
+        Initialize-AllModels
     }
     "init-all" {
         $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
@@ -1400,7 +1397,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]
   .\harness.ps1 calibrate-all [quick|full]
-  .\harness.ps1 init [quick|full] [auto|train|skip-training]
+  .\harness.ps1 init
   .\harness.ps1 calibration-status [profile]
   .\harness.ps1 probe [profile]
   .\harness.ps1 conformance

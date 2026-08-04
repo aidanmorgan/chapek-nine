@@ -11,15 +11,14 @@ the workers can share a single GPU.
 
 ```powershell
 cd C:\dev\projects\kimi
-.\harness.ps1 bootstrap
+.\harness.ps1 init
 .\harness.ps1 pi
 ```
 
-`bootstrap` installs the project-local Pi package and the official native
-Windows CUDA llama.cpp bundle, downloads and verifies the selected worker,
-calibrates CPU/GPU placement, downloads the small coordinator base, trains its
-LoRA adapter, and runs an end-to-end Pi smoke test. Existing Python 3.10 or
-newer is reused; set `CHAPEK_PYTHON` if it is not on `PATH`.
+`init` is the complete setup path: it installs local dependencies, downloads
+supported workers, fully calibrates and probes them, verifies API conformance,
+runs routing evals, records an experiment, ensures a coordinator adapter
+exists, evaluates its hold-out gate, and leaves the local front door running.
 
 The default worker download is approximately 18 GB. Downloads are segmented,
 resumable, checksum-verified against Hugging Face LFS metadata, and retry
@@ -101,13 +100,11 @@ For a fresh machine, `init` downloads every practical supported worker,
 calibrates and probes them serially, and starts the normal worker again:
 
 ```powershell
-.\harness.ps1 init full auto
+.\harness.ps1 init
 ```
 
-`init` defaults to `full auto`. The final argument is `auto` (train the coordinator only when its QLoRA adapter
-is absent), `train` (force a refresh), or `skip-training`. Skipping is refused
-when no adapter exists. K3 remains excluded until upstream llama.cpp can load
-it; all other supported profiles are assessed by the local calibration run.
+K3 remains excluded until upstream llama.cpp can load it; all other supported
+profiles are assessed by the local calibration run.
 
 The practical worker set includes Kimi Linear Q2, DeepSeek R1 Distill Qwen 14B,
 and DeepSeek Coder V2 Lite at Q4_K_M. The DeepSeek variants are approximately
