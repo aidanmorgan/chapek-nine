@@ -3,11 +3,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chooseRoute, taskText } from "./deterministic-router.mjs";
+import { chooseRoute, classifyRequest, taskText } from "./deterministic-router.mjs";
 import { createRuntimeState } from "./runtime-state.mjs";
 import { createScheduler } from "./scheduler.mjs";
+import { withRecovery } from "./recovery-controller.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
-import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
+import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, recovery as otelRecovery, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState } from "./context-state.mjs";
 import {
   adaptRequest,
@@ -552,14 +553,21 @@ async function forwardCompletion(req, res, body) {
   res.once("close", () => {
     if (!res.writableEnded) abort();
   });
-  const response = await upstream(
-    "/v1/chat/completions",
-    {
-      method: "POST",
-      body: JSON.stringify(finalBody(body, route, adapter, previousState)),
-      signal: controller.signal,
+  const requestPayload = JSON.stringify(finalBody(body, route, adapter, previousState));
+  const response = await withRecovery(
+    async () => upstream("/v1/chat/completions", {
+      method: "POST", body: requestPayload, signal: controller.signal,
+    }, 1_200_000),
+    async (failure) => {
+      runtimeState.record("recovery", { model: route.model, kind: failure.kind, action: "unload-reload" });
+      otelRecovery.add(1, { model: route.model, kind: failure.kind, phase: "unload-reload" });
+      await unloadModel(route.model);
+      await loadOnly(route.model);
     },
-    1_200_000,
+    (event) => {
+      runtimeState.record("recovery", { model: route.model, ...event });
+      otelRecovery.add(1, { model: route.model, kind: event.kind, phase: event.phase });
+    },
   );
 
   if (body.stream) {
@@ -628,6 +636,18 @@ async function forwardCompletion(req, res, body) {
   otelDuration.record(performance.now() - started, { model: route.model, stream: "false" }); requestSpan.end();
 }
 
+async function unloadModel(modelId) {
+  await jsonRequest("/models/unload", {
+    method: "POST",
+    body: JSON.stringify({ model: modelId }),
+  });
+  await waitForModel(
+    modelId,
+    (status) => !["loaded", "loading", "sleeping", "unloading"].includes(status),
+    "unload",
+  );
+}
+
 function sendJson(res, status, value) {
   const payload = JSON.stringify(value);
   res.writeHead(status, {
@@ -648,12 +668,12 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function enqueue(work) {
+function enqueue(work, priority = 0) {
   const queuedAt = performance.now();
   queueDepth += 1;
   return scheduler.submit(async () => {
     try { otelQueueWait.record(performance.now() - queuedAt); return await work(); } finally { queueDepth -= 1; }
-  });
+  }, priority);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -665,7 +685,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/runtime") {
-      sendJson(res, 200, runtimeState.snapshot());
+      sendJson(res, 200, { ...runtimeState.snapshot(), scheduler: scheduler.snapshot() });
       return;
     }
     if (req.method === "GET" && url.pathname === "/dashboard") {
@@ -706,7 +726,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 429, { error: { message: "Local model queue is at capacity; retry shortly.", type: "rate_limit_error" } });
         return;
       }
-      await enqueue(() => forwardCompletion(req, res, body));
+      const classification = classifyRequest(body);
+      // Tool-result continuation is a live agent loop and receives the lowest
+      // interactive latency.  High-complexity work may wait briefly, which
+      // avoids starving edits/tests behind long analytical requests.
+      const priority = classification.continuation ? 3 : classification.tier === "simple" ? 2 : classification.tier === "moderate" ? 1 : 0;
+      await enqueue(() => forwardCompletion(req, res, body), priority);
       return;
     }
     sendJson(res, 404, {
