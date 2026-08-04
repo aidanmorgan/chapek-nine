@@ -454,7 +454,27 @@ function Improve-Coordinator {
 }
 
 function Invoke-CoordinatorAutopilot {
-    $watch = $Profile -eq "watch"
+    $mode = if ($Profile) { $Profile.ToLowerInvariant() } else { "once" }
+    $statePath = Join-Path $RuntimeDir "coordinator-autopilot-daemon.json"
+    if ($mode -eq "start") {
+        $existing = Get-Content -Raw -LiteralPath $statePath -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $process = if ($existing) { Get-Process -Id $existing.pid -ErrorAction SilentlyContinue } else { $null }
+        if ($process -and $process.ProcessName -in @("powershell", "pwsh")) { Write-Host "Coordinator autopilot already runs as PID $($process.Id)."; return }
+        New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+        $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+        $process = Start-Process -FilePath $powershell -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $Root "harness.ps1"), "coordinator-autopilot", "watch") -WorkingDirectory $Root -RedirectStandardOutput (Join-Path $LogDir "coordinator-autopilot.out.log") -RedirectStandardError (Join-Path $LogDir "coordinator-autopilot.err.log") -PassThru -WindowStyle Hidden
+        Write-Utf8NoBom $statePath (([ordered]@{ pid = $process.Id; started = (Get-Date).ToUniversalTime().ToString("o"); outputLog = (Join-Path $LogDir "coordinator-autopilot.out.log"); errorLog = (Join-Path $LogDir "coordinator-autopilot.err.log") } | ConvertTo-Json) + "`n")
+        Write-Host "Started coordinator autopilot daemon (PID $($process.Id))."; return
+    }
+    if ($mode -eq "stop") {
+        $existing = Get-Content -Raw -LiteralPath $statePath -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $process = if ($existing) { Get-Process -Id $existing.pid -ErrorAction SilentlyContinue } else { $null }
+        if ($process -and $process.ProcessName -in @("powershell", "pwsh")) { Stop-Process -Id $process.Id; Write-Host "Stopped coordinator autopilot daemon." }
+        Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue; return
+    }
+    if ($mode -eq "status") { Get-Content -Raw -LiteralPath $statePath -ErrorAction SilentlyContinue; return }
+    if ($mode -notin @("once", "watch")) { throw "Usage: .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status]" }
+    $watch = $mode -eq "watch"
     # `watch` is a command mode, never a worker profile. Clear it before the
     # improvement flow starts the normal selected worker/router.
     $script:Profile = $null
@@ -1446,7 +1466,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 evals [profile] [quick|full]
   .\harness.ps1 evaluate-coordinator
   .\harness.ps1 improve-coordinator
-  .\harness.ps1 coordinator-autopilot [watch]
+  .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status]
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]
