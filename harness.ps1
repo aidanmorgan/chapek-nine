@@ -902,6 +902,7 @@ function Verify-Profile {
         generationTps = $generationTps
         expected = "LOCAL CUDA OK"
         outputTail = $text.Substring([math]::Max(0, $text.Length - 4000))
+        artifact = (Get-Content -Raw -LiteralPath $localModel.ManifestPath | ConvertFrom-Json)
     }
     Write-Utf8NoBom (Join-Path $reportDir "$($selected.Name).json") (($report | ConvertTo-Json -Depth 4) + "`n")
     if ($exitCode -ne 0) { throw "Local CUDA inference failed with exit code $exitCode." }
@@ -954,7 +955,7 @@ function Calibrate-Profile {
     New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
     Write-Host "Calibrating $($selected.Name) in $calibrationMode mode. Unsafe candidates will be terminated."
     & node (Join-Path $Root "scripts\calibrate.mjs") $bench $localModel.ModelPath `
-        $selected.Name $ConfigPath $CalibrationPath $calibrationMode
+        $selected.Name $ConfigPath $CalibrationPath $calibrationMode $localModel.ManifestPath
     if ($LASTEXITCODE -ne 0) { throw "Calibration failed with exit code $LASTEXITCODE." }
     Write-Host "Calibration saved to $CalibrationPath and will be applied automatically."
 }
@@ -1068,7 +1069,7 @@ function Probe-Profile {
     $local = Get-LocalModel $selected
     if (-not $local) { throw "Profile '$($selected.Name)' is not downloaded." }
     $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
-    & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json")
+    & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json") $local.ManifestPath
     if ($LASTEXITCODE -ne 0) { throw "Model capability probe failed." }
     # The proxy snapshots readiness at launch. Re-enter the composition root
     # after recording probe evidence so an eligible worker is admitted without

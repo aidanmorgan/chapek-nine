@@ -43,6 +43,9 @@ the worker must emit the required verification token.
 shows exactly why any installed worker is not yet eligible to receive Pi work.
 Verification and probing refresh this report automatically; a successful probe
 also restarts only the front door when its admission set changes.
+All lifecycle evidence is bound to the downloaded manifest (repository, quant,
+model identity, and file hashes). Replacing a model or quantization deliberately
+invalidates old verification, calibration, and probe reports.
 
 Models and generated runtime data can live on another disk:
 

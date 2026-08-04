@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [model, outputPath] = process.argv.slice(2);
+const [model, outputPath, manifestPath] = process.argv.slice(2);
 if (!model || !outputPath) throw new Error("Usage: probe-model.mjs <model-id> <output.json>");
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
 const headers = { "Content-Type": "application/json" };
@@ -53,7 +53,8 @@ checks.push(await check("streaming", async () => {
   const text = await stream.text(); if (!text.includes("data:")) throw new Error("stream had no SSE events"); return {};
 }));
 const jsonCheck = checks.find((item) => item.name === "json_schema");
-const probe = { version: 2, model, probedAt: new Date().toISOString(), jsonReliable: Boolean(jsonCheck?.passed), passed: checks.every((item) => item.passed), checks, notes: "This is a conformance signal, not a quality benchmark. A failure keeps the capability false rather than assuming adapter compatibility." };
+const artifact = manifestPath && fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : null;
+const probe = { version: 3, model, artifact, probedAt: new Date().toISOString(), jsonReliable: Boolean(jsonCheck?.passed), passed: checks.every((item) => item.passed), checks, notes: "This is a conformance signal, not a quality benchmark. A failure keeps the capability false rather than assuming adapter compatibility." };
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(probe, null, 2)}\n`);
 console.log(JSON.stringify(probe, null, 2));

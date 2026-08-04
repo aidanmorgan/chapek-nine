@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { adaptiveSearch } from "./calibration-search.mjs";
 
-const [bench, modelPath, profileName, profilesPath, outputPath, mode = "quick"] =
+const [bench, modelPath, profileName, profilesPath, outputPath, mode = "quick", manifestPath] =
   process.argv.slice(2);
 if (!bench || !modelPath || !profileName || !profilesPath || !outputPath) {
   console.error(
@@ -17,6 +17,9 @@ const profile = JSON.parse(fs.readFileSync(profilesPath, "utf8")).profiles?.[
   profileName
 ];
 if (!profile) throw new Error(`Unknown profile '${profileName}'.`);
+const artifact = manifestPath && fs.existsSync(manifestPath)
+  ? JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  : null;
 const totalRam = os.totalmem();
 
 function gpuMemory() {
@@ -258,6 +261,7 @@ existing.profiles[profileName] = {
   mode,
   modelPath: path.resolve(modelPath),
   modelSizeBytes: modelStat.size,
+  artifact,
   selected: {
     offloadMode: best.offloadMode,
     cpuMoeLayers: best.cpuMoeLayers,
