@@ -862,8 +862,12 @@ function Set-RouterModel([string]$ModelId) {
         }
     }
     $body = @{ model = $ModelId } | ConvertTo-Json
-    $null = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/models/load" -Method Post `
-        -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 1200
+    try {
+        $null = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/models/load" -Method Post `
+            -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 1200
+    } catch {
+        if ($_.ErrorDetails.Message -notmatch "already running") { throw }
+    }
 }
 
 function Verify-Profile {
