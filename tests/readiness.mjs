@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { buildReadiness, decideModelReadiness } from "../scripts/domain/model-readiness.mjs";
+import { decideModelReadiness } from "../scripts/domain/model-readiness.mjs";
+import { buildReadiness } from "../scripts/application/readiness-evidence.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

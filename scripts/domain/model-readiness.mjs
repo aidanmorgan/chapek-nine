@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-
 /**
  * Model-readiness bounded context.
  *
@@ -33,30 +30,4 @@ export function sameArtifact(left, right) {
   const canonicalLeft = artifactIdentity(left) || left;
   const canonicalRight = artifactIdentity(right) || right;
   return JSON.stringify(canonicalLeft) === JSON.stringify(canonicalRight) && canonicalLeft !== null;
-}
-
-export function buildReadiness({ profiles, modelsDir, runtimeDir, readJson = defaultReadJson, exists = fs.existsSync }) {
-  const calibration = readJson(path.join(runtimeDir, "calibration.json"), { profiles: {} });
-  return Object.entries(profiles.profiles).map(([id, profile]) => {
-    const modelDir = path.join(modelsDir, id);
-    const manifest = readJson(path.join(modelDir, "manifest.json"), null);
-    const decision = decideModelReadiness({
-      profile,
-      manifest,
-      verification: readJson(path.join(runtimeDir, "verification", `${id}.json`), null),
-      calibration: calibration.profiles?.[id],
-      capability: readJson(path.join(runtimeDir, "capabilities", `${id}.json`), null),
-    });
-    // A manifest is only evidence if every listed immutable GGUF exists.
-    if (decision.manifestValid && !manifest.files.every((file) => exists(path.join(modelDir, file.path)))) {
-      decision.manifestValid = false;
-      decision.eligible = false;
-      decision.reasons.unshift("verified-manifest-missing");
-    }
-    return { id, ...decision };
-  });
-}
-
-function defaultReadJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
 }
