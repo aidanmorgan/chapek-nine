@@ -484,6 +484,13 @@ function Test-AdapterConformance {
     if ($LASTEXITCODE -ne 0) { throw "Adapter conformance failed." }
 }
 
+function Update-Readiness {
+    $output = Join-Path $RuntimeDir "readiness.json"
+    $null = & node (Join-Path $Root "scripts\readiness.mjs") $Root $ModelsDir $RuntimeDir $output
+    if ($LASTEXITCODE -ne 0) { throw "Readiness report generation failed." }
+    return $output
+}
+
 function Improve-Coordinator {
     $script:Value = "full"; Run-RoutingEvals
     Train-Coordinator
@@ -1039,6 +1046,8 @@ function Initialize-AllModels {
             }
         }
         $script:Profile = $null
+        Verify-AllProfiles
+        $script:Profile = $null
         $script:Value = "full"
         Calibrate-AllProfiles
         foreach ($property in $config.profiles.PSObject.Properties) {
@@ -1051,6 +1060,7 @@ function Initialize-AllModels {
                 Probe-Profile
             }
         }
+        Update-Readiness | Out-Null
     } finally {
         $script:Profile = $savedProfile
         $script:Value = $savedValue
@@ -1302,6 +1312,7 @@ function Start-ModelProxy($State) {
     $previousProxyPort = $env:KIMI_PROXY_PORT
     $previousKvCacheDir = $env:KIMI_KV_CACHE_DIR
     $previousCoordinatorUrl = $env:CHAPEK_COORDINATOR_URL
+    $previousReadinessPath = $env:CHAPEK_READINESS_PATH
     try {
         $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
         $env:KIMI_PROXY_PORT = "$ProxyPort"
@@ -1309,6 +1320,7 @@ function Start-ModelProxy($State) {
         $env:CHAPEK_COORDINATOR_URL = if ($expectedCoordinator) {
             "http://127.0.0.1:$CoordinatorPort"
         } else { $null }
+        $env:CHAPEK_READINESS_PATH = Update-Readiness
         $proxyProcess = Start-Process -FilePath $node -ArgumentList @($proxyScript) `
             -RedirectStandardOutput $ProxyLog -RedirectStandardError "$ProxyLog.err" `
             -PassThru -WindowStyle Hidden
@@ -1317,6 +1329,7 @@ function Start-ModelProxy($State) {
         $env:KIMI_PROXY_PORT = $previousProxyPort
         $env:KIMI_KV_CACHE_DIR = $previousKvCacheDir
         $env:CHAPEK_COORDINATOR_URL = $previousCoordinatorUrl
+        $env:CHAPEK_READINESS_PATH = $previousReadinessPath
     }
     $State | Add-Member -NotePropertyName proxyPid -NotePropertyValue $proxyProcess.Id -Force
     $State | Add-Member -NotePropertyName proxyPort -NotePropertyValue $ProxyPort -Force

@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { buildReadiness } from "../scripts/readiness.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "chapek-readiness-")); const models = path.join(root, "models"); const runtime = path.join(root, "runtime");
+fs.mkdirSync(path.join(models, "worker"), { recursive: true }); fs.mkdirSync(path.join(runtime, "verification"), { recursive: true }); fs.mkdirSync(path.join(runtime, "capabilities"), { recursive: true });
+fs.writeFileSync(path.join(models, "worker", "model.gguf"), "x"); fs.writeFileSync(path.join(models, "worker", "manifest.json"), JSON.stringify({ repo: "org/model", quant: "Q4", files: [{ path: "model.gguf" }] }));
+fs.writeFileSync(path.join(runtime, "verification", "worker.json"), JSON.stringify({ passed: true })); fs.writeFileSync(path.join(runtime, "capabilities", "worker.json"), JSON.stringify({ passed: true })); fs.writeFileSync(path.join(runtime, "calibration.json"), JSON.stringify({ profiles: { worker: { selected: {} } } }));
+const [row] = buildReadiness({ profiles: { profiles: { worker: { repo: "org/model", quant: "Q4", supported: true } } }, modelsDir: models, runtimeDir: runtime }); assert.equal(row.eligible, true);
+fs.rmSync(root, { recursive: true, force: true }); console.log("readiness: ok");

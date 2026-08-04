@@ -68,6 +68,9 @@ if (kvCacheDir) {
 }
 const coordinatorEvalPath = process.env.CHAPEK_COORDINATOR_EVAL ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "coordinator-eval.json") : null);
+const readinessPath = process.env.CHAPEK_READINESS_PATH || null;
+const readiness = readinessPath && fs.existsSync(readinessPath) ? JSON.parse(fs.readFileSync(readinessPath, "utf8")) : null;
+const eligibleModels = readiness ? new Set(readiness.eligible || []) : null;
 
 function coordinatorPromotionApproved() {
   if (!coordinatorEvalPath || !fs.existsSync(coordinatorEvalPath)) return false;
@@ -428,7 +431,7 @@ async function prepareRoute(body) {
   const models = await catalog(true);
   const known = orchestrationIds();
   const available = new Set(
-    models.map((model) => model.id).filter((id) => known.has(id)),
+    models.map((model) => model.id).filter((id) => known.has(id) && (!eligibleModels || eligibleModels.has(id))),
   );
   if (!available.size) {
     throw new Error("No downloaded orchestration model is available.");
