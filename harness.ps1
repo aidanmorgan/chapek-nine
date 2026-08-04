@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -1341,6 +1341,8 @@ switch ($Command) {
     "add" { Add-ProfileRepo $Profile $Value $Extra }
     "onboard" { New-OnboardProfile $Profile $Value $Extra }
     "quant" { New-QuantVariant $Profile $Value }
+    "quant-report" { & node (Join-Path $Root "scripts\quant-report.mjs") $RuntimeDir }
+    "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
@@ -1391,6 +1393,8 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 add <profile> <owner/repo> [quant]
   .\harness.ps1 onboard <name> <owner/repo> <quant>
   .\harness.ps1 quant <profile> <quant>
+  .\harness.ps1 quant-report
+  .\harness.ps1 sandbox [node-unit]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
   .\harness.ps1 download-background [profile]
