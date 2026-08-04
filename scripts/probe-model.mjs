@@ -20,7 +20,13 @@ async function check(name, run) {
   try { const value = await run(); return { name, passed: true, latencyMs: Math.round(performance.now() - started), ...value }; }
   catch (error) { return { name, passed: false, latencyMs: Math.round(performance.now() - started), error: error.message }; }
 }
-await request("/models/load", { method: "POST", body: JSON.stringify({ model }) });
+// llama.cpp returns 400 when the requested worker is already active. Loading
+// is an idempotent application operation, so retain that worker and probe it.
+const load = await response("/models/load", { method: "POST", body: JSON.stringify({ model }) });
+if (!load.ok) {
+  const detail = await load.text();
+  if (!/already running/i.test(detail)) throw new Error(`/models/load: ${load.status} ${detail}`);
+}
 const checks = [];
 checks.push(await check("json_schema", async () => {
   const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "system", content: "Reply only with valid JSON." }, { role: "user", content: "Return {\"ok\":true}." }], temperature: 0, max_tokens: 32, response_format: { type: "json_object" } }) });
