@@ -57,6 +57,12 @@ def main():
     source = Path(args.input_dir)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    source_manifest_path = source / "manifest.json"
+    source_manifest = (
+        json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        if source_manifest_path.exists()
+        else {}
+    )
     train = load_jsonl(source / "train.jsonl")
     validation = load_jsonl(source / "validation.jsonl")
     train_path = output / "train.parquet"
@@ -73,7 +79,7 @@ def main():
     if overlap:
         raise RuntimeError(f"train/validation task-family leakage: {overlap} overlapping IDs")
     summary = {
-        "version": 1,
+        "version": 2,
         "format": "Parquet (Zstandard), verified with DuckDB",
         "trainRows": len(train),
         "validationRows": len(validation),
@@ -82,6 +88,23 @@ def main():
         "taskFamilyOverlap": overlap,
         "trainRoleCounts": dict(con.execute("SELECT primary_role, count(*) FROM train GROUP BY 1").fetchall()),
         "validationRoleCounts": dict(con.execute("SELECT primary_role, count(*) FROM validation GROUP BY 1").fetchall()),
+        "source": {
+            key: source_manifest.get(key)
+            for key in [
+                "suiteVersion",
+                "coreTaskCount",
+                "generatedTaskCount",
+                "taskFamilyCount",
+                "sampling",
+                "evalReport",
+                "teacher",
+                "admissionTiers",
+                "trainExamples",
+                "validationExamples",
+                "validationTaskIds",
+                "sha256",
+            ]
+        },
         "files": {
             "train.parquet": {"sha256": sha256(train_path), "bytes": train_path.stat().st_size},
             "validation.parquet": {"sha256": sha256(validation_path), "bytes": validation_path.stat().st_size},
