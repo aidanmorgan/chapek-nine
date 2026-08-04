@@ -83,7 +83,13 @@ export function classifyRequest(body) {
   };
 }
 
-export function chooseRoute(body, config, available) {
+export function chooseRoute(body, config, availability) {
+  const publicWorkers = availability instanceof Set
+    ? availability
+    : availability.publicWorkers;
+  const specialistWorkers = availability instanceof Set
+    ? availability
+    : availability.specialistWorkers;
   const classification = classifyRequest(body);
   const roleCandidates =
     config.roles[classification.primaryRole] || config.coordinator;
@@ -93,9 +99,9 @@ export function chooseRoute(body, config, available) {
     ...config.coordinator,
   ];
   const measuredPlan = config.budgetPlans?.[classification.primaryRole]?.[classification.tier];
-  const model = measuredPlan && available.has(measuredPlan.model)
+  const model = measuredPlan && publicWorkers.has(measuredPlan.model)
     ? measuredPlan.model
-    : firstAvailable(fallbackCandidates, available);
+    : firstAvailable(fallbackCandidates, publicWorkers);
   if (!model) throw new Error("No compatible downloaded model is available.");
 
   // Tool-result turns are latency-sensitive continuations of an existing agent
@@ -104,7 +110,7 @@ export function chooseRoute(body, config, available) {
   if (
     classification.continuation ||
     classification.tier === "simple" ||
-    available.size === 1
+    publicWorkers.size === 1
   ) {
     return {
       model,
@@ -126,7 +132,7 @@ export function chooseRoute(body, config, available) {
     classification.tier === "high" ? config.maxAssignments : 1;
   const assignments = [];
   for (const role of complementary) {
-    const worker = firstAvailable(config.roles[role] || [], available);
+    const worker = firstAvailable(config.roles[role] || [], specialistWorkers);
     if (worker && worker !== model && !assignments.some((item) => item.model === worker)) {
       assignments.push({
         role,

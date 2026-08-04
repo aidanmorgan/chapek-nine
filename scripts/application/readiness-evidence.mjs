@@ -19,8 +19,10 @@ export function buildReadiness({ profiles, modelsDir, runtimeDir, exists = fs.ex
     });
     if (decision.manifestValid && !manifest.files.every((file) => exists(path.join(modelDir, file.path)))) {
       decision.manifestValid = false;
-      decision.eligible = false;
-      decision.reasons.unshift("verified-manifest-missing");
+      decision.publicEligible = false;
+      decision.specialistEligible = false;
+      decision.publicReasons.unshift("verified-manifest-missing");
+      decision.specialistReasons.unshift("verified-manifest-missing");
     }
     return { id, ...decision };
   });

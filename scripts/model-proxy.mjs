@@ -73,7 +73,10 @@ const coordinatorEvalPath = process.env.CHAPEK_COORDINATOR_EVAL ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "coordinator-eval.json") : null);
 const readinessPath = process.env.CHAPEK_READINESS_PATH || null;
 const readiness = readinessPath && fs.existsSync(readinessPath) ? JSON.parse(fs.readFileSync(readinessPath, "utf8")) : null;
-const eligibleModels = readiness ? new Set(readiness.eligible || []) : null;
+const publicEligibleModels = readiness ? new Set(readiness.publicEligible || []) : null;
+const specialistEligibleModels = readiness
+  ? new Set(readiness.specialistEligible || [])
+  : null;
 
 function coordinatorPromotionApproved() {
   if (!coordinatorEvalPath || !fs.existsSync(coordinatorEvalPath)) return false;
@@ -290,9 +293,10 @@ async function internalChat(model, system, user, maxTokens) {
   const workerStarted = performance.now();
   await loadOnly(model);
   log(`${model} internal generation`);
+  const adapter = resolveAdapter(adapterRegistry, model);
   const result = await jsonRequest("/v1/chat/completions", {
     method: "POST",
-    body: JSON.stringify({
+    body: JSON.stringify(adaptRequest({
       model,
       messages: [
         { role: "system", content: system },
@@ -301,7 +305,7 @@ async function internalChat(model, system, user, maxTokens) {
       temperature: 0.2,
       max_tokens: maxTokens,
       stream: false,
-    }),
+    }, model, adapter, Number(profiles.profiles?.[model]?.context || 4096))),
   });
   const text = messageText(result.choices?.[0]?.message?.content).trim();
   if (!text) throw new Error(`${model} returned no text.`);
@@ -421,16 +425,20 @@ async function learnedRoute(body, available, fallback) {
 async function prepareRoute(body) {
   const models = await catalog(true);
   const known = orchestrationIds();
-  const available = new Set(
-    models.map((model) => model.id).filter((id) => known.has(id) && (!eligibleModels || eligibleModels.has(id))),
+  const knownAvailable = new Set(models.map((model) => model.id).filter((id) => known.has(id)));
+  const publicWorkers = new Set(
+    [...knownAvailable].filter((id) => !publicEligibleModels || publicEligibleModels.has(id)),
   );
-  if (!available.size) {
+  const specialistWorkers = new Set(
+    [...knownAvailable].filter((id) => !specialistEligibleModels || specialistEligibleModels.has(id)),
+  );
+  if (!publicWorkers.size) {
     throw new Error("No downloaded orchestration model is available.");
   }
 
-  const deterministic = chooseRoute(body, config, available);
+  const deterministic = chooseRoute(body, config, { publicWorkers, specialistWorkers });
   const decision =
-    (await learnedRoute(body, available, deterministic)) || {
+    (await learnedRoute(body, publicWorkers, deterministic)) || {
       ...deterministic,
       policy: "deterministic",
     };
