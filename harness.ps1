@@ -868,6 +868,13 @@ function Set-RouterModel([string]$ModelId) {
     } catch {
         if ($_.ErrorDetails.Message -notmatch "already running") { throw }
     }
+    foreach ($attempt in 1..1200) {
+        $catalog = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/models?reload=1" -Headers $headers -TimeoutSec 30
+        $current = @($catalog.data) | Where-Object { $_.id -eq $ModelId } | Select-Object -First 1
+        if ($current.status.value -eq "loaded") { return }
+        Start-Sleep -Seconds 1
+    }
+    throw "Model '$ModelId' did not finish loading within 20 minutes."
 }
 
 function Verify-Profile {
