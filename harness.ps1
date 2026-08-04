@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -801,6 +801,103 @@ function Calibrate-Profile {
     Write-Host "Calibration saved to $CalibrationPath and will be applied automatically."
 }
 
+function Calibrate-AllProfiles {
+    $calibrationMode = if ($Value) { $Value.ToLowerInvariant() } else { "full" }
+    if ($calibrationMode -notin @("quick", "full")) { throw "Calibration mode must be 'quick' or 'full'." }
+    $config = Read-Profiles
+    $savedProfile = $script:Profile
+    $savedValue = $script:Value
+    $results = @()
+    try {
+        foreach ($property in $config.profiles.PSObject.Properties) {
+            $name = $property.Name
+            $entry = $property.Value
+            if (-not $entry.supported) { continue }
+            # This host is below the documented RAM target for Q3. It remains
+            # opt-in through the single-profile command rather than risking
+            # severe paging in an unattended all-model pass.
+            if ($name -eq "kimi-linear-q3") {
+                $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "requires explicit opt-in on this host" }
+                continue
+            }
+            $selected = [pscustomobject]@{ Name = $name; Config = $entry }
+            if (-not (Get-LocalModel $selected)) {
+                $results += [pscustomobject]@{ profile = $name; status = "skipped"; reason = "not downloaded" }
+                continue
+            }
+            $script:Profile = $name
+            $script:Value = $calibrationMode
+            try {
+                Calibrate-Profile
+                $results += [pscustomobject]@{ profile = $name; status = "calibrated"; reason = $null }
+            } catch {
+                Write-Warning "Calibration failed for '$name': $($_.Exception.Message)"
+                $results += [pscustomobject]@{ profile = $name; status = "failed"; reason = $_.Exception.Message }
+            }
+        }
+    } finally {
+        $script:Profile = $savedProfile
+        $script:Value = $savedValue
+    }
+    New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
+    Write-Utf8NoBom (Join-Path $RuntimeDir "calibration-all.json") (($results | ConvertTo-Json -Depth 4) + "`n")
+    $results | Format-Table -AutoSize | Out-Host
+    $failed = @($results | Where-Object { $_.status -eq "failed" }).Count
+    if ($failed) { throw "$failed model calibration(s) failed; see runtime\calibration-all.json." }
+    Start-Server
+}
+
+function Initialize-AllModels([string]$Mode = "full", [string]$TrainingMode = "auto") {
+    if ($Mode -notin @("quick", "full")) { throw "Initialization mode must be 'quick' or 'full'." }
+    if ($TrainingMode -notin @("auto", "train", "skip-training")) {
+        throw "Training mode must be auto, train, or skip-training."
+    }
+    Install-Harness
+    $config = Read-Profiles
+    $savedProfile = $script:Profile
+    $savedValue = $script:Value
+    try {
+        foreach ($property in $config.profiles.PSObject.Properties) {
+            $name = $property.Name
+            $entry = $property.Value
+            if (-not $entry.supported -or $name -eq "kimi-linear-q3") { continue }
+            $selected = [pscustomobject]@{ Name = $name; Config = $entry }
+            if (-not (Get-LocalModel $selected)) {
+                Write-Host "Downloading practical worker '$name'..."
+                $script:Profile = $name
+                Download-Profile
+            }
+        }
+        $script:Profile = $null
+        $script:Value = $Mode
+        Calibrate-AllProfiles
+        foreach ($property in $config.profiles.PSObject.Properties) {
+            $name = $property.Name
+            $entry = $property.Value
+            if (-not $entry.supported -or $name -eq "kimi-linear-q3") { continue }
+            $selected = [pscustomobject]@{ Name = $name; Config = $entry }
+            if (Get-LocalModel $selected) {
+                $script:Profile = $name
+                Probe-Profile
+            }
+        }
+    } finally {
+        $script:Profile = $savedProfile
+        $script:Value = $savedValue
+    }
+    $coordinatorConfig = Read-CoordinatorConfig
+    $adapter = Join-Path $RuntimeDir $coordinatorConfig.adapter
+    $mustTrain = -not (Test-Path -LiteralPath $adapter)
+    if ($mustTrain -and $TrainingMode -eq "skip-training") {
+        Write-Warning "No coordinator QLoRA adapter exists; training is mandatory and will proceed."
+    }
+    if ($mustTrain -or $TrainingMode -eq "train") {
+        Train-Coordinator
+    }
+    Start-Server
+    Write-Host "All practical local workers are initialized. Next run: .\harness.ps1 evals full"
+}
+
 function Show-CalibrationStatus {
     $selected = Get-SelectedProfile
     if (-not (Test-Path -LiteralPath $CalibrationPath)) { throw "No calibration exists. Run: .\harness.ps1 calibrate $($selected.Name) full" }
@@ -1225,6 +1322,15 @@ switch ($Command) {
     "download-background" { Start-BackgroundDownload }
     "verify" { Verify-Profile }
     "calibrate" { Calibrate-Profile }
+    "calibrate-all" {
+        if ($Profile -in @("quick", "full") -and -not $Value) { $Value = $Profile; $Profile = $null }
+        Calibrate-AllProfiles
+    }
+    "init-all" {
+        $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
+        $trainingMode = if ($Value) { $Value.ToLowerInvariant() } else { "auto" }
+        Initialize-AllModels $initMode $trainingMode
+    }
     "calibration-status" { Show-CalibrationStatus }
     "probe" { Probe-Profile }
     "evals" {
@@ -1259,6 +1365,8 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 download-background [profile]
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]
+  .\harness.ps1 calibrate-all [quick|full]
+  .\harness.ps1 init-all [quick|full] [auto|train|skip-training]
   .\harness.ps1 calibration-status [profile]
   .\harness.ps1 probe [profile]
   .\harness.ps1 evals [profile] [quick|full]

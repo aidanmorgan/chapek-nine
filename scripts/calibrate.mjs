@@ -90,9 +90,11 @@ async function runCandidate(candidate, index, count) {
     String(candidate.threads),
     "-fa",
     candidate.flashAttention ? "on" : "off",
-    "-c",
-    String(candidate.context),
   ];
+  // llama-bench does not expose llama-server's --ctx-size switch. Context is
+  // still explored and persisted for serving, but benchmark measurements use
+  // this build's fixed test shape so the command remains portable across
+  // current native Windows llama.cpp releases.
   if (candidate.offloadMode === "partial-cpu-moe") {
     args.push("-ngl", "999", "-ncmoe", String(candidate.cpuMoeLayers));
   } else {

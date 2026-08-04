@@ -93,6 +93,22 @@ After each model download, run:
 .\harness.ps1 evaluate-coordinator
 ```
 
+To calibrate every downloaded, supported worker serially, use
+`.\harness.ps1 calibrate-all full`. It skips Kimi Q3 by default on this
+host because its documented RAM requirement exceeds the detected capacity; run
+the single-profile command to opt into that experiment.
+
+For a fresh machine, `init-all` downloads every practical supported worker,
+calibrates and probes them serially, and starts the normal worker again:
+
+```powershell
+.\harness.ps1 init-all full auto
+```
+
+The final argument is `auto` (train the coordinator only when its QLoRA adapter
+is absent), `train` (force a refresh), or `skip-training`. Skipping is refused
+when no adapter exists. K3 and Kimi Q3 remain deliberately opt-in.
+
 Calibration appends a history entry and flags material decode-throughput
 regressions. `probe` writes a capability report under `runtime\capabilities`.
 `evaluate-coordinator` uses held-out families and retains deterministic routing
@@ -201,6 +217,8 @@ download [profile]            Resume, download, and verify a worker
 download-background [profile] Run a resumable worker download in the background
 verify [profile]              Prove direct CUDA inference
 calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
+calibrate-all [mode]          Tune every downloaded safe worker serially
+init-all [mode] [training]    Download, tune, probe, and conditionally train
 calibration-status [profile]  Detect a material throughput regression
 probe [profile]               Create a local worker capability report
 evals [quick|full]            Rank installed workers on developer tasks
