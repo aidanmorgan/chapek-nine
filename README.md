@@ -41,6 +41,8 @@ the worker must emit the required verification token.
 
 `readiness` writes and prints the admission report used by the front door. It
 shows exactly why any installed worker is not yet eligible to receive Pi work.
+Verification and probing refresh this report automatically; a successful probe
+also restarts only the front door when its admission set changes.
 
 Models and generated runtime data can live on another disk:
 

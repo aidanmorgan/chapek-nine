@@ -906,6 +906,9 @@ function Verify-Profile {
     Write-Utf8NoBom (Join-Path $reportDir "$($selected.Name).json") (($report | ConvertTo-Json -Depth 4) + "`n")
     if ($exitCode -ne 0) { throw "Local CUDA inference failed with exit code $exitCode." }
     if (-not $passed) { throw "Local CUDA inference completed but did not return the required exact verification token. See runtime\verification\$($selected.Name).json." }
+    # Verification is lifecycle evidence. Refresh the aggregate report so a
+    # subsequent start cannot route based on stale admission information.
+    Update-Readiness | Out-Null
     Write-Host "Local inference verification passed."
 }
 
@@ -1067,6 +1070,11 @@ function Probe-Profile {
     $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
     & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json")
     if ($LASTEXITCODE -ne 0) { throw "Model capability probe failed." }
+    # The proxy snapshots readiness at launch. Re-enter the composition root
+    # after recording probe evidence so an eligible worker is admitted without
+    # requiring a separate manual restart.
+    Update-Readiness | Out-Null
+    Start-Server
 }
 
 function Evaluate-Coordinator {
