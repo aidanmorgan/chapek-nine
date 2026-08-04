@@ -77,6 +77,20 @@
       "minimumRamGiB": 20,
       "notes": "A practical 14B DeepSeek reasoning worker for this 16 GiB VRAM / 31 GiB RAM host. Init downloads the Q4_K_M GGUF and calibration chooses its safe layer placement."
     },
+    "deepseek-coder-v2-lite": {
+      "displayName": "DeepSeek Coder V2 Lite Instruct (Q4_K_M)",
+      "family": "deepseek",
+      "repo": "bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF",
+      "quant": "Q4_K_M",
+      "context": 8192,
+      "cacheTypeK": "q8_0",
+      "cacheTypeV": "q8_0",
+      "hybridMoe": true,
+      "offloadMode": "cpu-moe",
+      "supported": true,
+      "minimumRamGiB": 20,
+      "notes": "A roughly 9 GB coding-focused DeepSeek MoE worker. It complements Qwen Coder with substantially more VRAM headroom on this host; calibration determines the final expert placement."
+    },
     "glm-flash": {
       "displayName": "GLM-4.7-Flash 30B-A3B",
       "family": "glm",

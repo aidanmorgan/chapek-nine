@@ -37,6 +37,10 @@
       "extends": "qwen-coder",
       "family": "deepseek"
     },
+    "deepseek-coder-v2-lite": {
+      "extends": "qwen-coder",
+      "family": "deepseek"
+    },
     "glm-flash": {
       "family": "glm",
       "toolMode": "native",
