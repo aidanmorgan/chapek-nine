@@ -7,7 +7,7 @@ import { chooseRoute, classifyRequest, taskText } from "./deterministic-router.m
 import { createRuntimeState } from "./runtime-state.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { withRecovery } from "./recovery-controller.mjs";
-import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
+import { createRuntimeMetrics, resourceDecision, sampleResources, waitForAdmission } from "./runtime-guard.mjs";
 import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, recovery as otelRecovery, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState, statePrompt } from "./context-state.mjs";
 import {
@@ -514,9 +514,16 @@ function finalBody(body, route, adapter, previousState) {
 async function forwardCompletion(req, res, body) {
   const requestSpan = tracer.startSpan("chapek.request", { attributes: { model: publicModel } });
   const started = performance.now();
-  const decision = process.env.CHAPEK_DISABLE_RESOURCE_GUARD === "1"
+  let decision = process.env.CHAPEK_DISABLE_RESOURCE_GUARD === "1"
     ? { admit: true }
     : resourceDecision(sampleResources(), config.resourceLimits);
+  if (!decision.admit && /temperature/i.test(decision.reason || "")) {
+    runtimeState.record("recovery", { kind: "thermal", phase: "waiting", reason: decision.reason });
+    otelRecovery.add(1, { kind: "thermal", phase: "waiting" });
+    decision = await waitForAdmission({ limits: config.resourceLimits });
+    runtimeState.record("recovery", { kind: "thermal", phase: decision.admit ? "cooled" : "timeout", reason: decision.reason });
+    otelRecovery.add(1, { kind: "thermal", phase: decision.admit ? "cooled" : "timeout" });
+  }
   if (!decision.admit) throw new Error(`Local resource guard deferred request: ${decision.reason}`);
   const route = await prepareRoute(body);
   runtimeState.begin(route.model);

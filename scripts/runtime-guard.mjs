@@ -26,6 +26,16 @@ export function resourceDecision(sample, limits = {}) {
   return { admit: true };
 }
 
+export async function waitForAdmission({ sample = sampleResources, limits = {}, timeoutMs = 300_000, intervalMs = 5_000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = resourceDecision(sample(), limits);
+  while (!latest.admit && /temperature/i.test(latest.reason || "") && Date.now() < deadline) {
+    await sleep(intervalMs);
+    latest = resourceDecision(sample(), limits);
+  }
+  return latest;
+}
+
 export function createRuntimeMetrics() {
   const state = { startedAt: new Date().toISOString(), requests: 0, failures: 0, routes: {}, cacheRestores: 0, cacheSaves: 0, recent: [] };
   return {
