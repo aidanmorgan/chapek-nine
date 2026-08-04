@@ -1,4 +1,5 @@
 logs/*
+.otel/
 !logs/.gitkeep
 models/*
 !models/.gitkeep

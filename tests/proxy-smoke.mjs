@@ -166,9 +166,8 @@ try {
     await fetch(`http://127.0.0.1:${proxyPort}/v1/models`)
   ).json();
   assert.deepEqual(models.data.map((item) => item.id), ["chapek-nine"]);
-  const metrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).json();
-  assert.equal(metrics.requests, 0);
-  assert.ok(metrics.resources);
+  const metrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).text();
+  assert.match(metrics, /OpenTelemetry Prometheus exporter/);
 
   const malformed = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
     method: "POST",
@@ -273,8 +272,8 @@ try {
     ),
     "the second identical Pi-style turn should restore its derived-prefix slot",
   );
-  const finalMetrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).json();
-  assert.ok(finalMetrics.requests >= 1);
+  const finalMetrics = await (await fetch(`http://127.0.0.1:${proxyPort}/metrics`)).text();
+  assert.match(finalMetrics, /OpenTelemetry Prometheus exporter/);
   console.log("Proxy smoke test passed.");
 } finally {
   child.kill();

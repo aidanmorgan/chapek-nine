@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute, taskText } from "./deterministic-router.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
+import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, queueWait as otelQueueWait, routes as otelRoutes, setResourceGauges, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState } from "./context-state.mjs";
 import {
   adaptRequest,
@@ -145,6 +146,7 @@ async function waitForModel(modelId, predicate, description) {
 }
 
 async function loadOnly(modelId) {
+  const lifecycleStarted = performance.now();
   const models = await catalog();
   for (const model of models) {
     if (
@@ -173,6 +175,7 @@ async function loadOnly(modelId) {
     });
     await waitForModel(modelId, (status) => status === "loaded", "load");
   }
+  otelLifecycle.record(performance.now() - lifecycleStarted, { model: modelId, operation: "load" });
 }
 
 function cacheFilename(modelId, sessionId) {
@@ -218,14 +221,14 @@ async function slotAction(action, modelId, sessionId) {
   if (!kvCacheDir || !sessionId) return false;
   const filename = cacheFilename(modelId, sessionId);
   const fullPath = path.join(kvCacheDir, filename);
-  if (action === "restore" && !fs.existsSync(fullPath)) return false;
+  if (action === "restore" && !fs.existsSync(fullPath)) { otelCache.add(1, { model: modelId, action, outcome: "miss" }); return false; }
   try {
     await jsonRequest(`/slots/0?action=${action}`, {
       method: "POST",
       body: JSON.stringify({ filename, model: modelId }),
     }, 120_000);
     log(`${action}d KV slot model=${modelId} session=${sessionId.slice(0, 12)}`);
-    return true;
+    otelCache.add(1, { model: modelId, action, outcome: "success" }); return true;
   } catch (error) {
     log(`KV slot ${action} unavailable for ${modelId}: ${error.message}`);
     if (action === "restore") {
@@ -233,7 +236,7 @@ async function slotAction(action, modelId, sessionId) {
         fs.unlinkSync(fullPath);
       } catch {}
     }
-    return false;
+    otelCache.add(1, { model: modelId, action, outcome: "error" }); return false;
   }
 }
 
@@ -255,6 +258,7 @@ function orchestrationIds() {
 }
 
 async function internalChat(model, system, user, maxTokens) {
+  const workerStarted = performance.now();
   await loadOnly(model);
   log(`${model} internal generation`);
   const result = await jsonRequest("/v1/chat/completions", {
@@ -272,7 +276,7 @@ async function internalChat(model, system, user, maxTokens) {
   });
   const text = messageText(result.choices?.[0]?.message?.content).trim();
   if (!text) throw new Error(`${model} returned no text.`);
-  return text;
+  otelWorker.record(performance.now() - workerStarted, { model, role: "specialist" }); return text;
 }
 
 function validLearnedDecision(value, available, fallback) {
@@ -421,6 +425,7 @@ async function prepareRoute(body) {
       policy: "deterministic",
     };
   const task = taskText(body.messages);
+  otelCoordinator.add(1, { policy: decision.policy, tier: decision.classification.tier, role: decision.classification.primaryRole });
   log(
     `deterministic route tier=${decision.classification.tier} ` +
       `role=${decision.classification.primaryRole} model=${decision.model} ` +
@@ -492,12 +497,14 @@ function finalBody(body, route, adapter, previousState) {
 }
 
 async function forwardCompletion(req, res, body) {
+  const requestSpan = tracer.startSpan("chapek.request", { attributes: { model: publicModel } });
   const started = performance.now();
   const decision = process.env.CHAPEK_DISABLE_RESOURCE_GUARD === "1"
     ? { admit: true }
     : resourceDecision(sampleResources(), config.resourceLimits);
   if (!decision.admit) throw new Error(`Local resource guard deferred request: ${decision.reason}`);
   const route = await prepareRoute(body);
+  otelRoutes.add(1, { model: route.model, policy: route.policy, tier: route.classification.tier });
   await loadOnly(route.model);
   const adapter = resolveAdapter(adapterRegistry, route.model);
   const affinity = sessionAffinity(req, body);
@@ -589,6 +596,7 @@ async function forwardCompletion(req, res, body) {
       metrics.state.cacheSaves += 1;
       saveTaskState(taskStateDir, affinity.id, route.model, body.messages, "streamed response");
       metrics.record(route.model, performance.now() - started);
+      otelDuration.record(performance.now() - started, { model: route.model, stream: "true" }); requestSpan.end();
     } finally {
       reader.releaseLock();
       req.off("aborted", abort);
@@ -602,6 +610,7 @@ async function forwardCompletion(req, res, body) {
   metrics.state.cacheSaves += 1;
   saveTaskState(taskStateDir, affinity.id, route.model, body.messages, result.choices?.[0]?.message?.content);
   metrics.record(route.model, performance.now() - started);
+  otelDuration.record(performance.now() - started, { model: route.model, stream: "false" }); requestSpan.end();
 }
 
 function sendJson(res, status, value) {
@@ -625,9 +634,10 @@ async function readJson(req) {
 }
 
 function enqueue(work) {
+  const queuedAt = performance.now();
   queueDepth += 1;
   const wrapped = async () => {
-    try { return await work(); } finally { queueDepth -= 1; }
+    try { otelQueueWait.record(performance.now() - queuedAt); return await work(); } finally { queueDepth -= 1; }
   };
   const result = queue.then(wrapped, wrapped);
   queue = result.catch(() => {});
@@ -643,7 +653,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/metrics") {
-      sendJson(res, 200, { ...metrics.state, queueDepth, resources: sampleResources() });
+      const resource = sampleResources();
+      setResourceGauges(resource, queueDepth);
+      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4" });
+      res.end("# OpenTelemetry Prometheus exporter is available on CHAPEK_PROMETHEUS_PORT (default 9464).\n");
       return;
     }
     if (req.method === "GET" && url.pathname === "/v1/models") {
@@ -680,6 +693,7 @@ const server = http.createServer(async (req, res) => {
     });
   } catch (error) {
     metrics.record(null, 0, error.message);
+    otelErrors.add(1, { type: error.name || "error" });
     log(error.stack || error.message);
     if (!res.headersSent) {
       sendJson(res, 502, {
