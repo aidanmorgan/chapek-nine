@@ -94,6 +94,8 @@
       "sizeBytes": 17520169312,
       "sha256": "b0d4fbc1211f891b4cfbf2a497160bfe06a49412420068904d426b7a13f4ba7f",
       "context": 16384,
+      "verificationTokens": 64,
+      "verificationReasoning": "off",
       "cacheTypeK": "q8_0",
       "cacheTypeV": "q8_0",
       "hybridMoe": true,

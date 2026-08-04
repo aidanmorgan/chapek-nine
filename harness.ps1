@@ -716,6 +716,8 @@ function Get-InferenceArgs($Selected, [string]$ModelPath) {
     $ubatchSize = Get-EffectiveValue $Selected "ubatchSize" 256
     $threads = Get-EffectiveValue $Selected "threads" ([math]::Max(1, [Environment]::ProcessorCount / 2))
     $flashAttention = Get-EffectiveValue $Selected "flashAttention" $true
+    $verificationTokens = Get-EffectiveValue $Selected "verificationTokens" 12
+    $verificationReasoning = Get-EffectiveValue $Selected "verificationReasoning" $null
     $args = @(
         "-m", $ModelPath,
         "--jinja",
@@ -726,12 +728,13 @@ function Get-InferenceArgs($Selected, [string]$ModelPath) {
         "--threads", "$threads",
         "--parallel", "1",
         "--prompt", "Reply with exactly: LOCAL CUDA OK",
-        "--predict", "12",
+        "--predict", "$verificationTokens",
         "--single-turn",
         "--no-display-prompt"
     )
     $args += Get-CacheArgs $Selected
     $args += Get-OffloadArgs $Selected
+    if ($verificationReasoning) { $args += @("--reasoning", "$verificationReasoning") }
     return $args
 }
 
