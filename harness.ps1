@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -440,6 +440,12 @@ function Update-ModelCatalogue {
     & node (Join-Path $Root "scripts\model-catalogue.mjs") (Join-Path $RuntimeDir "model-catalogue.json") @repos
     if ($LASTEXITCODE -ne 0) { throw "Model catalogue update failed." }
     Write-Host "Upstream model catalogue refreshed in $RuntimeDir."
+}
+
+function Find-UpstreamCodingModels {
+    & node (Join-Path $Root "scripts\model-discovery.mjs") (Join-Path $RuntimeDir "model-discovery.json")
+    if ($LASTEXITCODE -ne 0) { throw "Upstream model discovery failed." }
+    Write-Host "Ranked discovery candidates saved in $RuntimeDir; review before onboarding."
 }
 
 function Test-AdapterConformance {
@@ -926,6 +932,7 @@ function Initialize-AllModels {
     # A catalogue refresh is advisory: discovery failures are recorded in the
     # runtime report and never prevent an already-configured local setup.
     Update-ModelCatalogue
+    Find-UpstreamCodingModels
     $config = Read-Profiles
     $savedProfile = $script:Profile
     $savedValue = $script:Value
@@ -1396,6 +1403,7 @@ switch ($Command) {
     "quant" { New-QuantVariant $Profile $Value }
     "quant-report" { & node (Join-Path $Root "scripts\quant-report.mjs") $RuntimeDir }
     "catalogue" { Update-ModelCatalogue }
+    "discover" { Find-UpstreamCodingModels }
     "sandbox" { & node (Join-Path $Root "scripts\eval-sandbox.mjs") $(if ($Profile) { $Profile } else { "node-unit" }) $Value }
     "download" { Download-Profile }
     "download-background" { Start-BackgroundDownload }
@@ -1450,6 +1458,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 quant <profile> <quant>
   .\harness.ps1 quant-report
   .\harness.ps1 catalogue
+  .\harness.ps1 discover
   .\harness.ps1 sandbox [node-unit|python-unit|powershell-unit] [candidate-file]
   .\harness.ps1 bootstrap [profile]
   .\harness.ps1 download [profile]
