@@ -462,6 +462,19 @@ function Improve-Coordinator {
 function Invoke-CoordinatorAutopilot {
     $mode = if ($Profile) { $Profile.ToLowerInvariant() } else { "once" }
     $statePath = Join-Path $RuntimeDir "coordinator-autopilot-daemon.json"
+    $taskName = "ChapekNineCoordinatorAutopilot"
+    if ($mode -eq "install") {
+        $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+        $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'harness.ps1')`" coordinator-autopilot start"
+        $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description "Starts the local Chapek Nine coordinator autopilot after user logon." -Force | Out-Null
+        Write-Host "Installed per-user coordinator autopilot scheduled task '$taskName'."; return
+    }
+    if ($mode -eq "uninstall") {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Host "Removed coordinator autopilot scheduled task '$taskName'."; return
+    }
     if ($mode -eq "start") {
         $existing = Get-Content -Raw -LiteralPath $statePath -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
         $process = if ($existing) { Get-Process -Id $existing.pid -ErrorAction SilentlyContinue } else { $null }
@@ -479,7 +492,7 @@ function Invoke-CoordinatorAutopilot {
         Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue; return
     }
     if ($mode -eq "status") { Get-Content -Raw -LiteralPath $statePath -ErrorAction SilentlyContinue; return }
-    if ($mode -notin @("once", "watch")) { throw "Usage: .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status]" }
+    if ($mode -notin @("once", "watch")) { throw "Usage: .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status|install|uninstall]" }
     $watch = $mode -eq "watch"
     # `watch` is a command mode, never a worker profile. Clear it before the
     # improvement flow starts the normal selected worker/router.
@@ -1475,7 +1488,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 evals [profile] [quick|full]
   .\harness.ps1 evaluate-coordinator
   .\harness.ps1 improve-coordinator
-  .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status]
+  .\harness.ps1 coordinator-autopilot [once|watch|start|stop|status|install|uninstall]
   .\harness.ps1 train-coordinator
   .\harness.ps1 smoke [profile]
   .\harness.ps1 start [profile]
