@@ -98,11 +98,11 @@ To calibrate every downloaded, supported worker serially, use
 host because its documented RAM requirement exceeds the detected capacity; run
 the single-profile command to opt into that experiment.
 
-For a fresh machine, `init-all` downloads every practical supported worker,
+For a fresh machine, `init` downloads every practical supported worker,
 calibrates and probes them serially, and starts the normal worker again:
 
 ```powershell
-.\harness.ps1 init-all full auto
+.\harness.ps1 init full auto
 ```
 
 The final argument is `auto` (train the coordinator only when its QLoRA adapter
@@ -218,7 +218,7 @@ download-background [profile] Run a resumable worker download in the background
 verify [profile]              Prove direct CUDA inference
 calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
 calibrate-all [mode]          Tune every downloaded safe worker serially
-init-all [mode] [training]    Download, tune, probe, and conditionally train
+init [mode] [training]        Download, tune, probe, and conditionally train
 calibration-status [profile]  Detect a material throughput regression
 probe [profile]               Create a local worker capability report
 evals [quick|full]            Rank installed workers on developer tasks

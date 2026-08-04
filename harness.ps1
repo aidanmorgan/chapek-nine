@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "download", "download-background", "verify", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "evals", "evaluate-coordinator", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -1326,6 +1326,11 @@ switch ($Command) {
         if ($Profile -in @("quick", "full") -and -not $Value) { $Value = $Profile; $Profile = $null }
         Calibrate-AllProfiles
     }
+    "init" {
+        $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
+        $trainingMode = if ($Value) { $Value.ToLowerInvariant() } else { "auto" }
+        Initialize-AllModels $initMode $trainingMode
+    }
     "init-all" {
         $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
         $trainingMode = if ($Value) { $Value.ToLowerInvariant() } else { "auto" }
@@ -1366,7 +1371,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 verify [profile]
   .\harness.ps1 calibrate [profile] [quick|full]
   .\harness.ps1 calibrate-all [quick|full]
-  .\harness.ps1 init-all [quick|full] [auto|train|skip-training]
+  .\harness.ps1 init [quick|full] [auto|train|skip-training]
   .\harness.ps1 calibration-status [profile]
   .\harness.ps1 probe [profile]
   .\harness.ps1 evals [profile] [quick|full]
