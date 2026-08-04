@@ -1260,6 +1260,8 @@ function Start-Coordinator($State) {
 function Start-ModelProxy($State) {
     $proxyScript = Join-Path $Root "scripts\model-proxy.mjs"
     if (-not (Test-Path -LiteralPath $proxyScript)) { throw "Missing transparent proxy: $proxyScript" }
+    $readinessPath = Update-Readiness
+    $readinessSignature = Get-StringHash (Get-Content -Raw -LiteralPath $readinessPath)
     $proxyProcess = if ($State.proxyPid) { Get-Process -Id $State.proxyPid -ErrorAction SilentlyContinue } else { $null }
     if ($proxyProcess -and $proxyProcess.ProcessName -notin @("node", "nodejs")) {
         Write-Warning "Ignoring stale proxy PID $($State.proxyPid) owned by $($proxyProcess.ProcessName)."
@@ -1267,6 +1269,10 @@ function Start-ModelProxy($State) {
     }
     $expectedCoordinator = [bool]$State.coordinatorEnabled
     if ($proxyProcess -and [bool]$State.proxyCoordinatorEnabled -ne $expectedCoordinator) {
+        Stop-Process -Id $proxyProcess.Id -ErrorAction SilentlyContinue
+        $proxyProcess = $null
+    }
+    if ($proxyProcess -and $State.proxyReadiness -ne $readinessSignature) {
         Stop-Process -Id $proxyProcess.Id -ErrorAction SilentlyContinue
         $proxyProcess = $null
     }
@@ -1291,7 +1297,7 @@ function Start-ModelProxy($State) {
         $env:CHAPEK_COORDINATOR_URL = if ($expectedCoordinator) {
             "http://127.0.0.1:$CoordinatorPort"
         } else { $null }
-        $env:CHAPEK_READINESS_PATH = Update-Readiness
+        $env:CHAPEK_READINESS_PATH = $readinessPath
         $proxyProcess = Start-Process -FilePath $node -ArgumentList @($proxyScript) `
             -RedirectStandardOutput $ProxyLog -RedirectStandardError "$ProxyLog.err" `
             -PassThru -WindowStyle Hidden
@@ -1305,6 +1311,7 @@ function Start-ModelProxy($State) {
     $State | Add-Member -NotePropertyName proxyPid -NotePropertyValue $proxyProcess.Id -Force
     $State | Add-Member -NotePropertyName proxyPort -NotePropertyValue $ProxyPort -Force
     $State | Add-Member -NotePropertyName proxyCoordinatorEnabled -NotePropertyValue $expectedCoordinator -Force
+    $State | Add-Member -NotePropertyName proxyReadiness -NotePropertyValue $readinessSignature -Force
     $State | ConvertTo-Json | Set-Content -LiteralPath $StatePath -Encoding utf8
     foreach ($attempt in 1..30) {
         # Do this before probing the port. Otherwise an orphaned proxy from a
