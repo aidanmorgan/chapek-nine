@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "init-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -342,35 +342,6 @@ function Get-LocalModel($Selected) {
                     ManifestPath = $manifestPath
                     Source = "profile"
                 }
-            }
-        }
-    }
-
-    # Harness versions before verified profile directories used llama.cpp's
-    # content-addressed cache. A finalized blob is already named by its LFS
-    # SHA-256, so it can be used in place without copying.
-    if ($Selected.Config.sha256 -and $Selected.Config.sizeBytes) {
-        $cacheRepoName = "models--$($Selected.Config.repo -replace '/', '--')"
-        $cacheRepoDir = Join-Path $ModelsDir "cache\$cacheRepoName"
-        $legacyBlob = Join-Path $cacheRepoDir "blobs\$($Selected.Config.sha256)"
-        $snapshotFile = if ($Selected.Config.file) {
-            Get-ChildItem (Join-Path $cacheRepoDir "snapshots") -Recurse -File -Filter $Selected.Config.file `
-                -ErrorAction SilentlyContinue | Select-Object -First 1
-        } else { $null }
-        $legacyPath = if (Test-Path -LiteralPath $legacyBlob) {
-            $legacyBlob
-        } elseif ($snapshotFile) {
-            $snapshotFile.FullName
-        } else {
-            $null
-        }
-        if ($legacyPath -and (Get-Item -LiteralPath $legacyPath).Length -eq [int64]$Selected.Config.sizeBytes) {
-            return [pscustomobject]@{
-                ModelId = $Selected.Name
-                ModelPath = $legacyPath
-                Files = @($legacyPath)
-                ManifestPath = $null
-                Source = "llama-cache"
             }
         }
     }
@@ -1521,11 +1492,6 @@ switch ($Command) {
     "init" {
         if ($Profile -or $Value -or $Extra) { throw "Usage: .\harness.ps1 init" }
         Initialize-AllModels
-    }
-    "init-all" {
-        $initMode = if ($Profile) { $Profile.ToLowerInvariant() } else { "full" }
-        $trainingMode = if ($Value) { $Value.ToLowerInvariant() } else { "auto" }
-        Initialize-AllModels $initMode $trainingMode
     }
     "calibration-status" { Show-CalibrationStatus }
     "probe" { Probe-Profile }

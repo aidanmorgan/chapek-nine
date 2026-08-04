@@ -352,40 +352,6 @@ async function download(entry) {
     fs.renameSync(finalPath, invalidPath);
     console.warn(`Preserved invalid existing file as ${path.basename(invalidPath)}.`);
   }
-
-  // Older harness versions used llama.cpp's Hugging Face cache. Adopt a
-  // completed blob with an NTFS hard link, so upgrades never duplicate a
-  // multi-gigabyte model on disk.
-  const legacyRepoDir = path.join(
-    path.dirname(outputDir),
-    "cache",
-    `models--${repo.replaceAll("/", "--")}`,
-  );
-  const legacyCandidates = [];
-  if (entry.lfs?.oid) {
-    legacyCandidates.push(path.join(legacyRepoDir, "blobs", entry.lfs.oid));
-  }
-  const snapshotsDir = path.join(legacyRepoDir, "snapshots");
-  if (fs.existsSync(snapshotsDir)) {
-    for (const revision of fs.readdirSync(snapshotsDir)) {
-      legacyCandidates.push(path.join(snapshotsDir, revision, entry.path));
-    }
-  }
-  const legacyBlob = legacyCandidates.find(
-    (candidate) =>
-      fs.existsSync(candidate) &&
-      (!expectedSize || fs.statSync(candidate).size === expectedSize),
-  );
-  if (legacyBlob && (await validate(legacyBlob, entry, false))) {
-    try {
-      fs.linkSync(legacyBlob, finalPath);
-      console.log(`Adopted verified llama.cpp cache blob for ${fileName} without copying.`);
-      return finalPath;
-    } catch (error) {
-      console.warn(`Could not hard-link the legacy cache blob: ${error.message}`);
-    }
-  }
-
   if (fs.existsSync(partialPath) && expectedSize) {
     const partialSize = fs.statSync(partialPath).size;
     if (partialSize > expectedSize) fs.rmSync(partialPath);
