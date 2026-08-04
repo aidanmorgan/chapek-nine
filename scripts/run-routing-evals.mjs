@@ -16,6 +16,10 @@ const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(
   /\/+$/,
   "",
 );
+const llamaApiKey = process.env.KIMI_LLAMA_API_KEY || process.env.LLAMA_API_KEY || "";
+const llamaAuthHeaders = llamaApiKey
+  ? { Authorization: `Bearer ${llamaApiKey}` }
+  : {};
 const outputPath =
   process.argv[2] || path.join(root, "runtime", "routing-evals.json");
 const mode = process.argv[3] || "quick";
@@ -37,7 +41,11 @@ const calibration = fs.existsSync(calibrationPath)
 async function request(route, options = {}, timeout = 1_200_000) {
   const response = await fetch(`${baseUrl}${route}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...llamaAuthHeaders,
+      ...(options.headers || {}),
+    },
     signal: AbortSignal.timeout(timeout),
   });
   if (!response.ok) {
