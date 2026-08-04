@@ -1,9 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  adaptRequest,
+  adaptResponse,
+  resolveAdapter,
+} from "./model-adapters.mjs";
 
 const [model, outputPath, manifestPath, contextArgument] = process.argv.slice(2);
 const contextLimit = Math.max(512, Number(contextArgument) || 4096);
 if (!model || !outputPath) throw new Error("Usage: probe-model.mjs <model-id> <output.json>");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const adapterRegistry = JSON.parse(
+  fs.readFileSync(path.join(root, "config", "model-adapters.json"), "utf8"),
+);
+const adapter = resolveAdapter(adapterRegistry, model);
 const baseUrl = (process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
 const headers = { "Content-Type": "application/json" };
 if (process.env.LLAMA_API_KEY) headers.Authorization = `Bearer ${process.env.LLAMA_API_KEY}`;
@@ -16,6 +27,16 @@ async function request(route, options = {}, timeout) {
   return value.json();
 }
 function content(result) { return result.choices?.[0]?.message?.content || ""; }
+function workerRequest(body) {
+  return adaptRequest(body, model, adapter, contextLimit);
+}
+async function workerCompletion(body, timeout) {
+  const result = await request("/v1/chat/completions", {
+    method: "POST",
+    body: JSON.stringify(workerRequest(body)),
+  }, timeout);
+  return adaptResponse(result, model, adapter, body);
+}
 async function check(name, run) {
   const started = performance.now();
   try { const value = await run(); return { name, passed: true, latencyMs: Math.round(performance.now() - started), ...value }; }
@@ -30,19 +51,19 @@ if (!load.ok) {
 }
 const checks = [];
 checks.push(await check("json_schema", async () => {
-  const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "system", content: "Reply only with valid JSON." }, { role: "user", content: "Return {\"ok\":true}." }], temperature: 0, max_tokens: 32, response_format: { type: "json_object" } }) });
+  const result = await workerCompletion({ model, messages: [{ role: "system", content: "Reply only with valid JSON." }, { role: "user", content: "Return {\"ok\":true}." }], temperature: 0, max_tokens: 512, response_format: { type: "json_object" } });
   let valid = false; try { valid = JSON.parse(content(result)).ok === true; } catch {}
-  if (!valid) throw new Error("response was not the requested JSON object");
+  if (!valid) throw new Error(`response was not the requested JSON object: ${String(content(result)).slice(0, 240)}`);
   return { promptTps: result.timings?.prompt_per_second || null, generationTps: result.timings?.predicted_per_second || null };
 }));
 checks.push(await check("developer_instruction", async () => {
-  const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "developer", content: "Reply with exactly the token DEV_OK." }, { role: "user", content: "What token should you return?" }], temperature: 0, max_tokens: 16 }) });
-  if (!String(content(result)).includes("DEV_OK")) throw new Error("developer instruction was not followed"); return {};
+  const result = await workerCompletion({ model, messages: [{ role: "developer", content: "Reply with exactly the token DEV_OK." }, { role: "user", content: "What token should you return?" }], temperature: 0, max_tokens: 512 });
+  if (!String(content(result)).includes("DEV_OK")) throw new Error(`developer instruction was not followed: ${String(content(result)).slice(0, 240)}`); return {};
 }));
 checks.push(await check("tool_schema", async () => {
-  const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "user", content: "Use the supplied tool to add 2 and 3." }], tools: [{ type: "function", function: { name: "add", description: "Add two integers", parameters: { type: "object", properties: { a: { type: "integer" }, b: { type: "integer" } }, required: ["a", "b"] } } }], tool_choice: "auto", temperature: 0, max_tokens: 64 }) });
+  const result = await workerCompletion({ model, messages: [{ role: "user", content: "Use the supplied tool to add 2 and 3." }], tools: [{ type: "function", function: { name: "add", description: "Add two integers", parameters: { type: "object", properties: { a: { type: "integer" }, b: { type: "integer" } }, required: ["a", "b"] } } }], tool_choice: "required", temperature: 0, max_tokens: 256 });
   const toolCalls = result.choices?.[0]?.message?.tool_calls || [];
-  if (!toolCalls.length) throw new Error("model returned no tool call"); return { toolCalls: toolCalls.length };
+  if (!toolCalls.length) throw new Error(`model returned no tool call: ${String(content(result)).slice(0, 240)}`); return { toolCalls: toolCalls.length };
 }));
 checks.push(await check("multilingual_code", async () => {
   const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "user", content: "日本語で、Pythonの関数 add(a, b) を一行で書いてください。" }], temperature: 0, max_tokens: 64 }) });
@@ -51,11 +72,11 @@ checks.push(await check("multilingual_code", async () => {
 checks.push(await check("long_context_recall", async () => {
   const marker = "CHAPEK_LONG_CONTEXT_MARKER_73";
   const filler = "The system is evaluating context retention. ".repeat(Math.max(16, Math.min(900, Math.floor(contextLimit / 80))));
-  const result = await request("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "user", content: `${marker}\n${filler}\nWhat exact marker appeared at the beginning?` }], temperature: 0, max_tokens: 32 }) }, 240_000);
+  const result = await workerCompletion({ model, messages: [{ role: "user", content: `${marker}\n${filler}\nWhat exact marker appeared at the beginning?` }], temperature: 0, max_tokens: 512 }, 240_000);
   if (!String(content(result)).includes(marker)) throw new Error("long-context marker was not recalled"); return {};
 }));
 checks.push(await check("streaming", async () => {
-  const stream = await response("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply STREAM_OK." }], stream: true, temperature: 0, max_tokens: 16 }) });
+  const stream = await response("/v1/chat/completions", { method: "POST", body: JSON.stringify(workerRequest({ model, messages: [{ role: "user", content: "Reply STREAM_OK." }], stream: true, temperature: 0, max_tokens: 16 })) });
   if (!stream.ok || !/text\/event-stream/i.test(stream.headers.get("content-type") || "")) throw new Error(`stream endpoint returned ${stream.status}`);
   const text = await stream.text(); if (!text.includes("data:")) throw new Error("stream had no SSE events"); return {};
 }));

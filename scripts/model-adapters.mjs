@@ -91,6 +91,18 @@ function normalizeMessages(messages, adapter) {
     : conversation;
 }
 
+function promptToolProtocol(tools) {
+  const functions = tools.map((tool, index) => normalizeTool(tool, index, {}).function);
+  return [
+    "Tool calls are required when a tool can complete the user request.",
+    "Do not describe, simulate, or execute a tool call in prose.",
+    "Return exactly one call in this transport-neutral form and nothing else:",
+    '<tool_call>{"name":"exact_tool_name","arguments":{}}</tool_call>',
+    "The name must exactly match one of the available tools. Arguments must be a JSON object.",
+    `Available tools: ${JSON.stringify(functions)}`,
+  ].join("\n");
+}
+
 export function adaptRequest(body, modelId, adapter, contextWindow) {
   const adapted = { ...body, model: modelId };
   for (const field of adapter.stripRequestFields || []) delete adapted[field];
@@ -109,11 +121,60 @@ export function adaptRequest(body, modelId, adapter, contextWindow) {
     adapted.tools = body.tools.map((tool, index) =>
       normalizeTool(tool, index, adapter),
     );
+  } else if (Array.isArray(body.tools) && adapter.toolMode === "prompt") {
+    delete adapted.tools;
+    delete adapted.tool_choice;
+    adapted.messages = [
+      ...adapted.messages,
+      { role: "system", content: promptToolProtocol(body.tools) },
+    ];
   } else if (adapter.toolMode === "none") {
     delete adapted.tools;
     delete adapted.tool_choice;
   }
   return adapted;
+}
+
+function jsonContent(content) {
+  if (typeof content !== "string") return content;
+  const fenced = content.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  const candidate = (fenced ? fenced[1] : content).trim();
+  try {
+    JSON.parse(candidate);
+    return candidate;
+  } catch {
+    return content;
+  }
+}
+
+function promptToolCalls(content, allowedNames) {
+  if (typeof content !== "string") return null;
+  const calls = [];
+  const add = (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (
+        typeof parsed?.name !== "string" ||
+        !parsed.name ||
+        (allowedNames.size && !allowedNames.has(parsed.name))
+      ) return;
+      const args = parsed.arguments && typeof parsed.arguments === "object"
+        ? parsed.arguments
+        : {};
+      calls.push({
+        id: `call_${crypto.randomBytes(8).toString("hex")}_${calls.length.toString(36)}`,
+        type: "function",
+        function: { name: parsed.name, arguments: JSON.stringify(args) },
+      });
+    } catch {}
+  };
+  const pattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi;
+  for (const match of content.matchAll(pattern)) add(match[1]);
+  if (!calls.length && content.includes("<tool_call>")) {
+    add(content.slice(content.lastIndexOf("<tool_call>") + "<tool_call>".length).trim());
+  }
+  if (!calls.length) add(content.trim());
+  return calls.length ? calls : null;
 }
 
 function normalizeToolCalls(toolCalls, normalizeArguments) {
@@ -139,16 +200,26 @@ function normalizeToolCalls(toolCalls, normalizeArguments) {
   });
 }
 
-export function adaptResponse(result, publicModel, adapter) {
+export function adaptResponse(result, publicModel, adapter, request = {}) {
   const output = { ...result, model: publicModel };
   output.choices = (result.choices || []).map((choice) => {
     if (!choice.message) return choice;
+    const content = request.response_format ? jsonContent(choice.message.content) : choice.message.content;
+    const allowedNames = new Set(
+      (Array.isArray(request.tools) ? request.tools : []).map((tool, index) =>
+        normalizeTool(tool, index, adapter).function.name,
+      ),
+    );
+    const emulated = adapter.toolMode === "prompt"
+      ? promptToolCalls(content, allowedNames)
+      : null;
     return {
       ...choice,
       message: {
         ...choice.message,
+        content,
         tool_calls: normalizeToolCalls(
-          choice.message.tool_calls,
+          choice.message.tool_calls || emulated,
           adapter.response?.normalizeToolArguments,
         ),
       },

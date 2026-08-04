@@ -630,7 +630,7 @@ async function forwardCompletion(req, res, body) {
     return;
   }
 
-  const result = adaptResponse(await response.json(), publicModel, adapter);
+  const result = adaptResponse(await response.json(), publicModel, adapter, body);
   if (Number.isFinite(result.timings?.prompt_per_second)) otelTps.record(result.timings.prompt_per_second, { model: route.model, phase: "prompt" });
   if (Number.isFinite(result.timings?.predicted_per_second)) otelTps.record(result.timings.predicted_per_second, { model: route.model, phase: "decode" });
   sendJson(res, response.status, result);

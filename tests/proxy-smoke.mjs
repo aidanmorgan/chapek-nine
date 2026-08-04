@@ -5,7 +5,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { adaptRequest, resolveAdapter } from "../scripts/model-adapters.mjs";
+import { adaptRequest, adaptResponse, resolveAdapter } from "../scripts/model-adapters.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const upstreamPort = 18091;
@@ -159,7 +159,13 @@ try {
   assert.equal(glmRequest.repeat_penalty, 1);
   assert.equal(glmRequest.min_p, 0.01);
   assert.equal(glmRequest.max_tokens, 400);
-  assert.equal(glmRequest.tools[0].function.name, "read_file");
+  assert.equal(glmRequest.tools, undefined);
+  assert.match(glmRequest.messages.at(-1).content, /transport-neutral/i);
+  const promptedToolResponse = adaptResponse({ choices: [{ message: { role: "assistant", content: '<tool_call>{"name":"read_file","arguments":{"path":"a.ts"}}</tool_call>' } }] }, "chapek-nine", resolveAdapter(adapterRegistry, "glm-flash"));
+  assert.equal(promptedToolResponse.choices[0].message.tool_calls[0].function.name, "read_file");
+  assert.equal(promptedToolResponse.choices[0].message.tool_calls[0].function.arguments, '{"path":"a.ts"}');
+  const jsonResponse = adaptResponse({ choices: [{ message: { role: "assistant", content: '```json\n{"ok":true}\n```' } }] }, "chapek-nine", resolveAdapter(adapterRegistry, "glm-flash"), { response_format: { type: "json_object" } });
+  assert.equal(jsonResponse.choices[0].message.content, '{"ok":true}');
 
   await waitForProxy();
   const models = await (

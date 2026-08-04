@@ -35,11 +35,18 @@
     },
     "deepseek-r1-14b": {
       "extends": "qwen-coder",
-      "family": "deepseek"
+      "family": "deepseek",
+      "toolMode": "prompt",
+      "requestFields": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
     },
     "deepseek-coder-v2-lite": {
       "extends": "qwen-coder",
-      "family": "deepseek"
+      "family": "deepseek",
+      "toolMode": "prompt"
     },
     "codellama-instruct": {
       "family": "llama",
@@ -48,7 +55,7 @@
     },
     "glm-flash": {
       "family": "glm",
-      "toolMode": "native",
+      "toolMode": "prompt",
       "systemMode": "merge",
       "requestFields": {
         "chat_template_kwargs": {
@@ -60,7 +67,7 @@
     },
     "gemma4": {
       "family": "gemma",
-      "toolMode": "native",
+      "toolMode": "prompt",
       "systemMode": "merge",
       "requestFields": {
         "chat_template_kwargs": {
