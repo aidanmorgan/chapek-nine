@@ -85,6 +85,19 @@
       "supported": true,
       "notes": "Coding-focused DeepSeek MoE worker; calibration determines final expert placement."
     },
+    "codellama-instruct": {
+      "displayName": "Code Llama 13B Instruct (Q4_K_M candidate)",
+      "family": "llama",
+      "repo": "TheBloke/CodeLlama-13B-Instruct-GGUF",
+      "quant": "Q4_K_M",
+      "context": 16384,
+      "cacheTypeK": "q8_0",
+      "cacheTypeV": "q8_0",
+      "hybridMoe": false,
+      "offloadMode": "auto",
+      "supported": true,
+      "notes": "Code Llama Instruct is an older Llama-family coding candidate. Its GGUF artifact is checksum-verified at download; it remains ineligible until local CUDA verification, calibration, capability probing, and routing evaluation all pass."
+    },
     "glm-flash": {
       "displayName": "GLM-4.7-Flash 30B-A3B",
       "family": "glm",

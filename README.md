@@ -125,7 +125,9 @@ K3 remains excluded until upstream llama.cpp can load it; all other supported
 profiles are assessed by the local calibration run.
 
 The practical worker set includes Kimi Linear Q2, DeepSeek R1 Distill Qwen 14B,
-and DeepSeek Coder V2 Lite at Q4_K_M. The DeepSeek variants are approximately
+DeepSeek Coder V2 Lite, and the Code Llama 13B Instruct candidate at Q4_K_M.
+Code Llama is not selected by static routing: it must earn a role through
+measured local evaluation. The DeepSeek variants are approximately
 9–10 GB GGUFs that are calibrated before routing can select them.
 
 Calibration appends a history entry and flags material decode-throughput

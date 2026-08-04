@@ -41,6 +41,11 @@
       "extends": "qwen-coder",
       "family": "deepseek"
     },
+    "codellama-instruct": {
+      "family": "llama",
+      "toolMode": "native",
+      "systemMode": "merge"
+    },
     "glm-flash": {
       "family": "glm",
       "toolMode": "native",
