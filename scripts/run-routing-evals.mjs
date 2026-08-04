@@ -9,6 +9,7 @@ import { loadDeveloperTaskSuite } from "./developer-task-suite.mjs";
 import { classifyRequest } from "./deterministic-router.mjs";
 import { assignUtilities, calibratedHeadroom } from "./routing-objective.mjs";
 import { artifactIdentity } from "./domain/model-readiness.mjs";
+import { openEvaluationCheckpoint } from "./application/evaluation-checkpoint.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const modelsDir = path.resolve(process.env.KIMI_MODELS_DIR || path.join(root, "models"));
@@ -159,7 +160,17 @@ const quickTasks = suite.tasks.filter((task) => {
   return true;
 });
 const tasks = mode === "full" ? suite.tasks : quickTasks;
-const rows = [];
+const checkpoint = openEvaluationCheckpoint({
+  outputPath,
+  identity: {
+    suiteVersion: suite.version,
+    mode,
+    models,
+    modelArtifacts,
+    outputBudgets: objective.outputBudgets,
+  },
+});
+const rows = checkpoint.rows;
 for (const model of models) {
   await loadOnly(model);
   for (const task of tasks) {
@@ -168,6 +179,7 @@ for (const model of models) {
     }).tier;
     const budgets = objective.outputBudgets?.[tier] || [500];
     for (const maxTokens of budgets) {
+      if (checkpoint.has(model, task.id, maxTokens)) continue;
       process.stderr.write(`[eval] ${model} ${task.id} budget=${maxTokens}\n`);
       const started = performance.now();
       try {
@@ -197,7 +209,7 @@ for (const model of models) {
         body: JSON.stringify(adapted),
       });
       const text = textOf(result);
-        rows.push({
+        checkpoint.append({
         model,
         taskId: task.id,
         category: task.category,
@@ -212,7 +224,7 @@ for (const model of models) {
         response: text,
         });
       } catch (error) {
-        rows.push({
+        checkpoint.append({
         model,
         taskId: task.id,
         category: task.category,
@@ -318,4 +330,5 @@ fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 const temporary = `${outputPath}.${process.pid}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`);
 fs.renameSync(temporary, outputPath);
+checkpoint.complete();
 console.log(JSON.stringify({ outputPath, models, taskCount: tasks.length, roleScores, roleTierPlans }, null, 2));
