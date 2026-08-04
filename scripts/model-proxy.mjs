@@ -9,7 +9,7 @@ import { createScheduler } from "./scheduler.mjs";
 import { withRecovery } from "./recovery-controller.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
 import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, recovery as otelRecovery, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
-import { loadTaskState, saveTaskState } from "./context-state.mjs";
+import { loadTaskState, saveTaskState, statePrompt } from "./context-state.mjs";
 import {
   adaptRequest,
   adaptResponse,
@@ -475,7 +475,7 @@ function finalBody(body, route, adapter, previousState) {
   const privateEvidence = [
     route.evidence,
     previousState && previousState.model !== route.model
-      ? `Prior worker state (advisory; do not mention it):\n${previousState.taskBrief}\n${previousState.responseBrief}`
+      ? `Prior worker state (advisory; do not mention it):\n${statePrompt(previousState)}`
       : "",
   ].filter(Boolean).join("\n\n");
   const hidden = privateEvidence
@@ -689,7 +689,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/dashboard") {
-      const page = `<!doctype html><title>Chapek Nine</title><pre id="view">loading…</pre><script>setInterval(async()=>{document.querySelector('#view').textContent=JSON.stringify(await (await fetch('/runtime')).json(),null,2)},1000)</script>`;
+      const page = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chapek Nine runtime</title><style>body{margin:0;background:#101318;color:#e8edf3;font:14px system-ui;padding:24px}h1{margin:0 0 4px}.muted{color:#9eacbc}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:20px}.card{background:#1a2029;border:1px solid #2b3544;border-radius:10px;padding:14px}.num{font-size:24px;font-weight:650}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px;border-bottom:1px solid #2b3544}code{font-family:ui-monospace,monospace}</style><h1>Chapek Nine</h1><div class="muted">Local model proxy runtime — refreshes every second</div><div id="summary" class="grid"></div><div class="grid"><section class="card"><h2>Models</h2><div id="models"></div></section><section class="card"><h2>Recent events</h2><div id="events"></div></section></div><script>const e=x=>document.getElementById(x),esc=x=>String(x??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const render=async()=>{try{const d=await(await fetch('/runtime')).json(),s=d.scheduler||{},m=Object.entries(d.models||{});e('summary').innerHTML=[['Queued',s.pending??0],['Running',s.running?'yes':'no'],['Completed',s.completed??0],['Oldest wait',String(s.oldestWaitMs??0)+' ms']].map(([a,b])=>'<div class="card"><div class="muted">'+a+'</div><div class="num">'+b+'</div></div>').join('');e('models').innerHTML=m.length?'<table><tr><th>Model</th><th>Requests</th><th>Failures</th><th>RAM / VRAM</th></tr>'+m.map(([n,v])=>'<tr><td><code>'+esc(n)+'</code></td><td>'+v.requests+'</td><td>'+v.failures+'</td><td>'+Math.round((v.allocatedRamBytes||0)/1048576)+' / '+Math.round((v.allocatedVramBytes||0)/1048576)+' MiB</td></tr>').join('')+'</table>':'No routed requests yet.';e('events').innerHTML=(d.events||[]).slice(-12).reverse().map(v=>'<p><code>'+esc(v.at)+'</code> '+esc(v.type)+' '+esc(v.model||v.kind||'')+'</p>').join('')||'No events yet.'}catch(err){e('events').textContent='Dashboard unavailable: '+err.message}};render();setInterval(render,1000)</script>`;
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(page);
       return;
     }
