@@ -190,6 +190,7 @@ async function loadOnly(modelId) {
     await waitForModel(modelId, (status) => status === "loaded", "load");
   }
   if (loadedHere) runtimeState.allocation(modelId, resourceBaseline, sampleResources());
+  else runtimeState.activate(modelId);
   otelLifecycle.record(performance.now() - lifecycleStarted, { model: modelId, operation: "load" });
 }
 
@@ -688,6 +689,15 @@ function enqueue(work, priority = 0) {
   }, priority);
 }
 
+function routeAffinityPriority(classification) {
+  const active = runtimeState.active();
+  if (!active) return 0;
+  const candidates = config.roles[classification.primaryRole] || config.coordinator || [];
+  // The learned coordinator can still override this choice; this is only a
+  // queue tie-breaker based on the measured cost of unloading/reloading.
+  return candidates.includes(active) ? 1 : 0;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || host}`);
@@ -742,7 +752,7 @@ const server = http.createServer(async (req, res) => {
       // Tool-result continuation is a live agent loop and receives the lowest
       // interactive latency.  High-complexity work may wait briefly, which
       // avoids starving edits/tests behind long analytical requests.
-      const priority = classification.continuation ? 3 : classification.tier === "simple" ? 2 : classification.tier === "moderate" ? 1 : 0;
+      const priority = (classification.continuation ? 3 : classification.tier === "simple" ? 2 : classification.tier === "moderate" ? 1 : 0) + routeAffinityPriority(classification);
       await enqueue(() => forwardCompletion(req, res, body), priority);
       return;
     }

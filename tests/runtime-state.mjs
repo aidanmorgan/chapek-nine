@@ -10,4 +10,5 @@ assert.equal(model.requests, 1);
 assert.equal(model.allocatedRamBytes, Math.round(5.5 * 2 ** 30));
 assert.equal(model.allocatedVramBytes, 2000 * 1048576);
 assert.equal(model.observedVramBytes, 2200 * 1048576);
+assert.equal(state.active(), "model-a");
 console.log("runtime state: ok");
