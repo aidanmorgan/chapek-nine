@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildReadiness } from "../scripts/readiness.mjs";
+import { buildReadiness, decideModelReadiness } from "../scripts/domain/model-readiness.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,4 +8,5 @@ fs.mkdirSync(path.join(models, "worker"), { recursive: true }); fs.mkdirSync(pat
 fs.writeFileSync(path.join(models, "worker", "model.gguf"), "x"); fs.writeFileSync(path.join(models, "worker", "manifest.json"), JSON.stringify({ repo: "org/model", quant: "Q4", files: [{ path: "model.gguf" }] }));
 fs.writeFileSync(path.join(runtime, "verification", "worker.json"), JSON.stringify({ passed: true })); fs.writeFileSync(path.join(runtime, "capabilities", "worker.json"), JSON.stringify({ passed: true })); fs.writeFileSync(path.join(runtime, "calibration.json"), JSON.stringify({ profiles: { worker: { selected: {} } } }));
 const [row] = buildReadiness({ profiles: { profiles: { worker: { repo: "org/model", quant: "Q4", supported: true } } }, modelsDir: models, runtimeDir: runtime }); assert.equal(row.eligible, true);
+assert.deepEqual(decideModelReadiness({ profile: { repo: "org/model", quant: "Q4", supported: false }, manifest: { repo: "org/model", quant: "Q4", files: [{ path: "model.gguf" }] }, verification: { passed: true }, calibration: { selected: {} }, capability: { passed: true } }).reasons, ["capability-gated"]);
 fs.rmSync(root, { recursive: true, force: true }); console.log("readiness: ok");

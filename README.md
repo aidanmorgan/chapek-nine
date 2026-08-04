@@ -39,6 +39,9 @@ downloaded practical worker and writes one immutable-result report per worker
 under `runtime\verification`. A zero process exit code alone is not accepted:
 the worker must emit the required verification token.
 
+`readiness` writes and prints the admission report used by the front door. It
+shows exactly why any installed worker is not yet eligible to receive Pi work.
+
 Models and generated runtime data can live on another disk:
 
 ```powershell
@@ -225,6 +228,7 @@ calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
 calibrate-all [mode]          Tune every downloaded safe worker serially
 init [mode] [training]        Download, tune, probe, and conditionally train
 calibration-status [profile]  Detect a material throughput regression
+readiness                     Refresh and display worker admission evidence
 probe [profile]               Create a local worker capability report
 evals [quick|full]            Rank installed workers on developer tasks
 train-coordinator             Generate data and train/convert coordinator LoRA

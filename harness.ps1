@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "calibration-status", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
+    [ValidateSet("setup", "init", "doctor", "profiles", "use", "add", "onboard", "quant", "quant-report", "catalogue", "discover", "sandbox", "download", "download-all", "download-background", "verify", "verify-all", "calibrate", "calibrate-all", "calibration-status", "readiness", "probe", "conformance", "experiment", "evals", "evaluate-coordinator", "improve-coordinator", "coordinator-autopilot", "train-coordinator", "smoke", "bootstrap", "start", "pi", "status", "stop", "help")]
     [string]$Command = "help",
     [Parameter(Position = 1)]
     [string]$Profile,
@@ -457,7 +457,7 @@ function Test-AdapterConformance {
 
 function Update-Readiness {
     $output = Join-Path $RuntimeDir "readiness.json"
-    $null = & node (Join-Path $Root "scripts\readiness.mjs") $Root $ModelsDir $RuntimeDir $output
+    $null = & node (Join-Path $Root "scripts\application\generate-readiness-report.mjs") $Root $ModelsDir $RuntimeDir $output
     if ($LASTEXITCODE -ne 0) { throw "Readiness report generation failed." }
     return $output
 }
@@ -1497,6 +1497,7 @@ switch ($Command) {
         Initialize-AllModels
     }
     "calibration-status" { Show-CalibrationStatus }
+    "readiness" { $path = Update-Readiness; Get-Content -Raw -LiteralPath $path }
     "probe" { Probe-Profile }
     "conformance" { Test-AdapterConformance }
     "experiment" { Run-Experiment }
@@ -1544,6 +1545,7 @@ Local Pi + llama.cpp hybrid harness
   .\harness.ps1 calibrate-all [quick|full]
   .\harness.ps1 init
   .\harness.ps1 calibration-status [profile]
+  .\harness.ps1 readiness
   .\harness.ps1 probe [profile]
   .\harness.ps1 conformance
   .\harness.ps1 experiment [record] [name]
