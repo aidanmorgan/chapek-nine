@@ -1069,6 +1069,9 @@ function Probe-Profile {
     $selected = Get-SelectedProfile
     $local = Get-LocalModel $selected
     if (-not $local) { throw "Profile '$($selected.Name)' is not downloaded." }
+    # llama.cpp starts asynchronously; a health response alone does not mean
+    # the selected worker has finished loading and can accept completions.
+    Set-RouterModel $local.ModelId
     $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
     & node (Join-Path $Root "scripts\probe-model.mjs") $local.ModelId (Join-Path $RuntimeDir "capabilities\$($selected.Name).json") $local.ManifestPath
     if ($LASTEXITCODE -ne 0) { throw "Model capability probe failed." }
