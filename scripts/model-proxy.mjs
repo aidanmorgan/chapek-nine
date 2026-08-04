@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute, taskText } from "./deterministic-router.mjs";
+import { createRuntimeState } from "./runtime-state.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
 import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState } from "./context-state.mjs";
@@ -53,6 +54,7 @@ const kvCacheDir = process.env.KIMI_KV_CACHE_DIR
   : null;
 const taskStateDir = process.env.CHAPEK_TASK_STATE_DIR ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "task-state") : null);
+const runtimeState = createRuntimeState(kvCacheDir ? path.join(path.dirname(kvCacheDir), "runtime-state") : null);
 const routingEvalsPath =
   process.env.KIMI_ROUTING_EVALS ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "routing-evals.json") : null);
@@ -510,6 +512,7 @@ async function forwardCompletion(req, res, body) {
     : resourceDecision(sampleResources(), config.resourceLimits);
   if (!decision.admit) throw new Error(`Local resource guard deferred request: ${decision.reason}`);
   const route = await prepareRoute(body);
+  runtimeState.begin(route.model);
   otelRoutes.add(1, { model: route.model, policy: route.policy, tier: route.classification.tier });
   await loadOnly(route.model);
   const adapter = resolveAdapter(adapterRegistry, route.model);
@@ -618,6 +621,8 @@ async function forwardCompletion(req, res, body) {
   metrics.state.cacheSaves += 1;
   saveTaskState(taskStateDir, affinity.id, route.model, body.messages, result.choices?.[0]?.message?.content);
   metrics.record(route.model, performance.now() - started);
+  const sample = sampleResources();
+  runtimeState.resource(route.model, Math.round((sample.totalRamGiB - sample.freeRamGiB) * 2 ** 30), Math.round((sample.gpu?.usedMiB || 0) * 1048576));
   otelOutcomes.add(1, { model: route.model, outcome: "success" });
   otelDuration.record(performance.now() - started, { model: route.model, stream: "false" }); requestSpan.end();
 }
@@ -661,6 +666,10 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { status: "ok", upstream: health, resources: sampleResources(), queueDepth });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/runtime") {
+      sendJson(res, 200, runtimeState.snapshot());
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/metrics") {
       const resource = sampleResources();
       setResourceGauges(resource, queueDepth);
@@ -702,6 +711,7 @@ const server = http.createServer(async (req, res) => {
     });
   } catch (error) {
     metrics.record(null, 0, error.message);
+    runtimeState.fail("unknown", error.message);
     otelErrors.add(1, { type: error.name || "error" });
     otelOutcomes.add(1, { outcome: error.name === "AbortError" ? "cancelled" : "error" });
     log(error.stack || error.message);
