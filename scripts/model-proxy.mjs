@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseRoute, taskText } from "./deterministic-router.mjs";
 import { createRuntimeMetrics, resourceDecision, sampleResources } from "./runtime-guard.mjs";
-import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, queueWait as otelQueueWait, routes as otelRoutes, setResourceGauges, tracer, worker as otelWorker } from "./observability.mjs";
+import { cache as otelCache, coordinator as otelCoordinator, duration as otelDuration, errors as otelErrors, lifecycle as otelLifecycle, outcomes as otelOutcomes, queueWait as otelQueueWait, routes as otelRoutes, setCalibrationHeadroom, setResourceGauges, tps as otelTps, tracer, worker as otelWorker } from "./observability.mjs";
 import { loadTaskState, saveTaskState } from "./context-state.mjs";
 import {
   adaptRequest,
@@ -56,6 +56,12 @@ const taskStateDir = process.env.CHAPEK_TASK_STATE_DIR ||
 const routingEvalsPath =
   process.env.KIMI_ROUTING_EVALS ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "routing-evals.json") : null);
+if (kvCacheDir) {
+  try {
+    const calibrated = JSON.parse(fs.readFileSync(path.join(path.dirname(kvCacheDir), "calibration.json"), "utf8"));
+    setCalibrationHeadroom(Object.fromEntries(Object.entries(calibrated.profiles || {}).map(([model, value]) => [model, Number(value.benchmark?.minFreeVramMiB || 0) * 1024 * 1024])));
+  } catch {}
+}
 const coordinatorEvalPath = process.env.CHAPEK_COORDINATOR_EVAL ||
   (kvCacheDir ? path.join(path.dirname(kvCacheDir), "coordinator-eval.json") : null);
 
@@ -605,11 +611,14 @@ async function forwardCompletion(req, res, body) {
   }
 
   const result = adaptResponse(await response.json(), publicModel, adapter);
+  if (Number.isFinite(result.timings?.prompt_per_second)) otelTps.record(result.timings.prompt_per_second, { model: route.model, phase: "prompt" });
+  if (Number.isFinite(result.timings?.predicted_per_second)) otelTps.record(result.timings.predicted_per_second, { model: route.model, phase: "decode" });
   sendJson(res, response.status, result);
   await slotAction("save", route.model, affinity.id);
   metrics.state.cacheSaves += 1;
   saveTaskState(taskStateDir, affinity.id, route.model, body.messages, result.choices?.[0]?.message?.content);
   metrics.record(route.model, performance.now() - started);
+  otelOutcomes.add(1, { model: route.model, outcome: "success" });
   otelDuration.record(performance.now() - started, { model: route.model, stream: "false" }); requestSpan.end();
 }
 
@@ -694,6 +703,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     metrics.record(null, 0, error.message);
     otelErrors.add(1, { type: error.name || "error" });
+    otelOutcomes.add(1, { outcome: error.name === "AbortError" ? "cancelled" : "error" });
     log(error.stack || error.message);
     if (!res.headersSent) {
       sendJson(res, 502, {
