@@ -455,6 +455,9 @@ function Improve-Coordinator {
 
 function Invoke-CoordinatorAutopilot {
     $watch = $Profile -eq "watch"
+    # `watch` is a command mode, never a worker profile. Clear it before the
+    # improvement flow starts the normal selected worker/router.
+    $script:Profile = $null
     do {
         $raw = & node (Join-Path $Root "scripts\coordinator-autopilot.mjs") $RuntimeDir check
         if ($LASTEXITCODE -ne 0) { throw "Coordinator autopilot check failed." }
