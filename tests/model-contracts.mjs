@@ -17,6 +17,10 @@ for (const [id, profile] of Object.entries(profiles.profiles)) {
   assert.ok(profile.quant, `${id} needs a quantization selector`);
   assert.ok(Number(profile.context) > 0, `${id} needs a positive context`);
   assert.ok(profile.offloadMode, `${id} needs an offload strategy`);
+  assert.ok(
+    profile.admission === undefined || ["public", "specialist"].includes(profile.admission),
+    `${id} has an invalid admission tier`,
+  );
   assert.ok(adapters.models[id], `${id} needs an explicit protocol adapter`);
   const adapter = resolveAdapter(adapters, id);
   assert.ok(adapter.systemMode, `${id} adapter needs a system-message policy`);

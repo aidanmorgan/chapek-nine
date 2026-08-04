@@ -192,7 +192,7 @@ fs.writeFileSync(
   path.join(outputDir, "manifest.json"),
   `${JSON.stringify(
     {
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
       suiteVersion: suite.version,
       coreTaskCount: suite.coreTaskCount,
@@ -203,6 +203,9 @@ fs.writeFileSync(
         ? path.resolve(evalReportPath)
         : null,
       teacher: "deterministic-router",
+      admissionTiers: Object.fromEntries(
+        specialistModels.map((id) => [id, profiles.profiles[id].admission || "public"]),
+      ),
       trainExamples: train.length,
       validationExamples: validation.length,
       validationTaskIds: [...validationTaskIds].sort(),

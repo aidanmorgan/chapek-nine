@@ -315,12 +315,16 @@ async function internalChat(model, system, user, maxTokens) {
 function validLearnedDecision(value, availability, fallback) {
   if (!value || value.version !== 1) return null;
   if (!["simple", "moderate", "high"].includes(value.tier)) return null;
+  const primaryCandidates = value.primary?.role === "general"
+    ? [...config.coordinator, ...config.synthesizer]
+    : config.roles[value.primary?.role] || [];
   if (
     !value.primary ||
     !["general", "analyst", "implementer", "reviewer"].includes(
       value.primary.role,
     ) ||
-    !availability.publicWorkers.has(value.primary.model)
+    !availability.publicWorkers.has(value.primary.model) ||
+    !primaryCandidates.includes(value.primary.model)
   ) {
     return null;
   }
@@ -338,6 +342,7 @@ function validLearnedDecision(value, availability, fallback) {
       !step ||
       !config.roles[step.role] ||
       !availability.specialistWorkers.has(step.model) ||
+      !config.roles[step.role].includes(step.model) ||
       step.model === value.primary.model ||
       typeof step.instruction !== "string" ||
       step.instruction.length < 8
