@@ -3,4 +3,4 @@
 # implementation delegates into the portable application layer.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node "$ROOT/scripts/macos-harness.mjs" "$@"
+exec "$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/macos-harness.ts" "$@"

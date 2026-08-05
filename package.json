@@ -2,15 +2,20 @@
   "name": "local-pi-hybrid-harness",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Pi engineering harness backed by llama.cpp CPU/GPU hybrid inference",
   "scripts": {
     "setup": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 setup",
     "doctor": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 doctor",
-    "materialize-evals": "node ./scripts/materialize-developer-task-suite.mjs",
-    "sandbox": "node ./scripts/eval-sandbox.mjs",
-    "quant-report": "node ./scripts/quant-report.mjs",
-    "materialize-training-corpus": "node ./scripts/materialize-coordinator-corpus.mjs ./training/corpus/v2",
-    "test": "node ./tests/developer-task-suite.mjs && node ./tests/routing-objective.mjs && node ./tests/output-budget-routing.mjs && node ./tests/admission-routing.mjs && node ./tests/versioned-training-corpus.mjs && node ./tests/materialize-coordinator-corpus.mjs && node ./tests/model-contracts.mjs && node ./tests/evaluation-evidence.mjs && node ./tests/evaluation-checkpoint.mjs && node ./tests/calibration-search.mjs && node ./tests/hardware-platform.mjs && node ./tests/local-artifact.mjs && node ./tests/command-core.mjs && node ./tests/windows-platform-contract.mjs && node ./tests/runtime-guard.mjs && node ./tests/context-state.mjs && node ./tests/runtime-state.mjs && node ./tests/readiness.mjs && node ./tests/scheduler.mjs && node ./tests/recovery-controller.mjs && node ./tests/coordinator-autopilot.mjs && node ./tests/model-discovery.mjs && node ./tests/eval-sandbox.mjs && node ./tests/proxy-smoke.mjs",
+    "typecheck": "tsc --noEmit",
+    "materialize-evals": "tsx ./scripts/materialize-developer-task-suite.ts",
+    "sandbox": "tsx ./scripts/eval-sandbox.ts",
+    "quant-report": "tsx ./scripts/quant-report.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint scripts tests",
+    "materialize-training-corpus": "tsx ./scripts/materialize-coordinator-corpus.ts ./training/corpus/v2",
+    "test": "tsx ./tests/developer-task-suite.ts && tsx ./tests/routing-objective.ts && tsx ./tests/output-budget-routing.ts && tsx ./tests/admission-routing.ts && tsx ./tests/versioned-training-corpus.ts && tsx ./tests/materialize-coordinator-corpus.ts && tsx ./tests/coordinator-decision.ts && tsx ./tests/model-contracts.ts && tsx ./tests/evaluation-evidence.ts && tsx ./tests/evaluation-checkpoint.ts && tsx ./tests/calibration-search.ts && tsx ./tests/hardware-platform.ts && tsx ./tests/local-artifact.ts && tsx ./tests/command-core.ts && tsx ./tests/windows-platform-contract.ts && tsx ./tests/runtime-guard.ts && tsx ./tests/context-state.ts && tsx ./tests/runtime-state.ts && tsx ./tests/readiness.ts && tsx ./tests/scheduler.ts && tsx ./tests/recovery-controller.ts && tsx ./tests/coordinator-autopilot.ts && tsx ./tests/model-discovery.ts && tsx ./tests/eval-sandbox.ts && tsx ./tests/proxy-smoke.ts",
     "verify": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 verify",
     "smoke": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 smoke",
     "start": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 start",
@@ -19,11 +24,20 @@
     "profiles": "powershell -ExecutionPolicy Bypass -File ./harness.ps1 profiles"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.81.0"
+    "@earendil-works/pi-coding-agent": "^0.81.0",
+    "@types/node": "^26.1.2",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
+    "@typescript-eslint/parser": "^8.66.0",
+    "eslint": "9.39.1",
+    "globals": "16.5.0",
+    "jiti": "^2.7.0",
+    "prettier": "3.9.6",
+    "tsx": "^4.23.7",
+    "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
     "@duckdb/node-api": "1.5.5-r.3",
+    "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
     "@opentelemetry/exporter-prometheus": "^0.221.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
@@ -32,6 +46,7 @@
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
-    "@opentelemetry/semantic-conventions": "^1.43.0"
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "ajv": "8.20.0"
   }
 }

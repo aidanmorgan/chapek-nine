@@ -1,4 +1,4 @@
 {
-  "command": ["node", "--test", "solution.test.mjs"],
-  "candidate": "solution.mjs"
+  "command": ["tsx", "--test", "solution.test.ts"],
+  "candidate": "solution.ts"
 }

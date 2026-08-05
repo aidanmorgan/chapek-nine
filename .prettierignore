@@ -1,0 +1,8 @@
+node_modules/
+runtime/
+logs/
+models/
+.pi/
+AGENTS.md
+package-lock.json
+training/corpus/

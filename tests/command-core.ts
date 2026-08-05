@@ -1,0 +1,132 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createChapekCommandCore } from "../scripts/application/chapek-command-core.ts";
+import { createFileProfileRepository } from "../scripts/infrastructure/persistence/profile-repository.ts";
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "chapek-core-"));
+const models = path.join(root, "models");
+const runtime = path.join(root, "runtime");
+fs.mkdirSync(path.join(models, "worker"), { recursive: true });
+fs.mkdirSync(runtime, { recursive: true });
+fs.writeFileSync(
+  path.join(root, "profiles.json"),
+  JSON.stringify({
+    default: "worker",
+    profiles: { worker: { supported: true, repo: "owner/repo", quant: "Q4" } },
+  }),
+);
+fs.writeFileSync(path.join(models, "worker", "model.gguf"), "x");
+fs.writeFileSync(
+  path.join(models, "worker", "manifest.json"),
+  JSON.stringify({ repo: "owner/repo", quant: "Q4", files: [{ path: "model.gguf" }] }),
+);
+const calls = [];
+const platform = {
+  fileExists: fs.existsSync,
+  readFile: (file) => fs.readFileSync(file, "utf8"),
+  usage: () => "help",
+  help() {},
+  doctor() {},
+  showProfiles() {},
+  profileOnboarded(value) {
+    calls.push(`onboard:${value.name}`);
+  },
+  async download() {
+    calls.push("download");
+  },
+  async verify() {
+    calls.push("verify");
+  },
+  async calibrate(_item, _local, mode) {
+    calls.push(`calibrate:${mode}`);
+  },
+  async probe() {
+    calls.push("probe");
+  },
+  async adapterConformance() {
+    calls.push("conformance");
+  },
+  async generateReadiness() {
+    calls.push("readiness");
+  },
+  async evaluate(request) {
+    calls.push(`evals:${request.mode}:${request.target?.id || "all"}`);
+  },
+  async smoke(_item, local) {
+    assert.equal(local.path.endsWith("model.gguf"), true);
+    calls.push("smoke");
+  },
+  async setup() {
+    calls.push("setup");
+  },
+  async start() {},
+  stop() {},
+  async pi() {},
+  coordinatorCapability() {
+    return { localTraining: true, localEvaluation: true };
+  },
+  async trainCoordinator() {
+    calls.push("train");
+  },
+  async evaluateCoordinator() {
+    calls.push("coordinator-eval");
+  },
+  async waitForRoutingEvaluation() {
+    return path.join(runtime, "routing-evals.json");
+  },
+  reportCoordinatorFallback() {
+    calls.push("fallback");
+  },
+};
+const core = createChapekCommandCore({
+  root,
+  platform,
+  modelsDir: models,
+  runtimeDir: runtime,
+  profileRepository: createFileProfileRepository(path.join(root, "profiles.json")),
+});
+await core.execute("init");
+assert.deepEqual(calls, [
+  "setup",
+  "conformance",
+  "download",
+  "verify",
+  "calibrate:full",
+  "probe",
+  "readiness",
+  "evals:full:all",
+  "readiness",
+  "train",
+  "coordinator-eval",
+  "smoke",
+]);
+await core.execute("evals", "full");
+await core.execute("evals", "worker", "quick");
+assert.deepEqual(calls.slice(-2), ["evals:full:all", "evals:quick:worker"]);
+await core.execute("train-coordinator");
+await core.execute("evaluate-coordinator");
+fs.writeFileSync(
+  path.join(runtime, "routing-evals.json"),
+  JSON.stringify({ models: ["worker"], modelArtifacts: { worker: {} }, rows: [{}] }),
+);
+await core.execute("await-evals");
+assert.deepEqual(calls.slice(-5), [
+  "coordinator-eval",
+  "readiness",
+  "train",
+  "coordinator-eval",
+  "smoke",
+]);
+await core.execute("onboard", "custom-code", "owner/new-model", "Q4_K_M");
+const onboarded = JSON.parse(fs.readFileSync(path.join(root, "profiles.json"), "utf8")).profiles[
+  "custom-code"
+];
+assert.equal(onboarded.repo, "owner/new-model");
+assert.equal(onboarded.quant, "Q4_K_M");
+assert.equal(onboarded.supported, true);
+await assert.rejects(() => core.execute("onboard", "Bad Name", "owner/repo", "Q4"), /lowercase/);
+assert.equal(calls.at(-1), "onboard:custom-code");
+fs.rmSync(root, { recursive: true, force: true });
+console.log("command core tests passed");

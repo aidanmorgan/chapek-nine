@@ -25,7 +25,7 @@ public name.
 
 ## Routing policy
 
-`scripts\deterministic-router.mjs` is the auditable teacher and permanent
+`scripts\domain\routing-policy.ts` is the auditable teacher and permanent
 safety fallback. It identifies implementation, analysis, review, and general
 work, then assigns simple, moderate, or high complexity:
 
@@ -61,7 +61,7 @@ schema-constrained JSON containing:
 - per-step instructions and evidence access;
 - confidence.
 
-`scripts\generate-coordinator-data.mjs` creates train/validation JSONL from:
+`scripts\generate-coordinator-data.ts` creates train/validation JSONL from:
 
 1. the deterministic policy;
 2. varying worker-availability sets;
@@ -104,7 +104,7 @@ generated coordinator dataset.
 ## Model-family request adapters
 
 `config\model-adapters.json` is data-driven and supports inheritance.
-`scripts\model-adapters.mjs` handles:
+`scripts\model-adapters.ts` handles:
 
 - developer-to-system role conversion and adjacent system merging;
 - text-part normalization;
@@ -143,7 +143,7 @@ Consequently:
 
 ## Verification
 
-`tests\proxy-smoke.mjs` covers single-model exposure, deterministic and
+`tests\proxy-smoke.ts` covers single-model exposure, deterministic and
 specialist routing, tool preservation, family adaptation, SSE identity, and
 derived-prefix slot restoration. `smoke` adds live llama.cpp and Pi inference.
 

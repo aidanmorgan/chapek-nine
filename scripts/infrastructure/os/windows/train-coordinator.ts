@@ -1,0 +1,77 @@
+import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const [root, modelsDir, runtimeDir] = process.argv.slice(2);
+if (!root || !modelsDir || !runtimeDir)
+  throw new Error("Usage: train-coordinator.ts <root> <models-dir> <runtime-dir>");
+const run = (exe, args) =>
+  execFileSync(exe, args, { cwd: root, stdio: "inherit", windowsHide: true });
+const version = (python) => {
+  const result = spawnSync(
+    python,
+    ["-c", "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)"],
+    { encoding: "utf8", windowsHide: true },
+  );
+  return result.status === 0 ? Number(result.stdout.trim()) : 0;
+};
+const candidates = [process.env.CHAPEK_PYTHON, "python.exe", "python", "py.exe"].filter(Boolean);
+const python = candidates.find(
+  (candidate) => version(candidate) >= 310 && version(candidate) <= 312,
+);
+if (!python)
+  throw new Error(
+    "Python 3.10-3.12 is required for Windows CUDA QLoRA; set CHAPEK_PYTHON if necessary.",
+  );
+const config = JSON.parse(fs.readFileSync(path.join(root, "config", "coordinator.json"), "utf8"));
+const coordinator = path.join(runtimeDir, "coordinator");
+const data = path.join(coordinator, "data");
+const venv = path.join(coordinator, "venv");
+const venvPython = path.join(venv, "Scripts", "python.exe");
+const adapterDir = path.join(coordinator, "lora-hf");
+const adapter = path.join(coordinator, "chapek-nine-lora.gguf");
+fs.mkdirSync(coordinator, { recursive: true });
+run(process.execPath, [
+  "--import",
+  "tsx",
+  path.join(root, "scripts", "generate-coordinator-data.ts"),
+  data,
+  path.join(runtimeDir, "routing-evals.json"),
+]);
+if (!fs.existsSync(venvPython)) run(python, ["-m", "venv", venv]);
+run(venvPython, ["-m", "pip", "install", "--upgrade", "pip"]);
+run(venvPython, ["-m", "pip", "install", "-r", path.join(root, "training", "requirements.txt")]);
+run(venvPython, [
+  "-m",
+  "pip",
+  "install",
+  "--upgrade",
+  "--force-reinstall",
+  "--no-cache-dir",
+  "torch",
+  "--index-url",
+  process.env.CHAPEK_TORCH_INDEX_URL || "https://download.pytorch.org/whl/cu126",
+]);
+run(venvPython, [
+  "-c",
+  "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print(torch.cuda.get_device_name(0))",
+]);
+run(venvPython, [
+  path.join(root, "training", "train_coordinator.py"),
+  "--base-model",
+  config.trainingBase,
+  "--data-dir",
+  data,
+  "--output-dir",
+  adapterDir,
+  "--qlora",
+]);
+const source = path.join(runtimeDir, "llama.cpp-source");
+const converter = path.join(source, "convert_lora_to_gguf.py");
+if (!fs.existsSync(converter))
+  run("git.exe", ["clone", "--depth", "1", "https://github.com/ggml-org/llama.cpp.git", source]);
+run(venvPython, ["-m", "pip", "install", path.join(source, "gguf-py")]);
+run(venvPython, [converter, "--outfile", adapter, "--outtype", "f16", adapterDir]);
+if (!fs.existsSync(adapter))
+  throw new Error("LoRA-to-GGUF conversion did not produce the coordinator adapter.");
+console.log(`Coordinator adapter trained at ${adapter}`);

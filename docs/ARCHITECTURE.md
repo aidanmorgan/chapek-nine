@@ -7,7 +7,7 @@ not decide routing or model eligibility.
 
 The bounded contexts are deliberately small and independently testable:
 
-- **Routing** (`deterministic-router`, `routing-objective`, `scheduler`) turns
+- **Routing** (`domain/routing-policy`, `routing-objective`, `scheduler`) turns
   a Pi request into a constrained worker plan.
 - **Model lifecycle** (`calibration-search`, `probe-model`, `domain/model-readiness`)
   owns measured evidence and admission. A public worker must pass its artifact
@@ -23,7 +23,7 @@ The bounded contexts are deliberately small and independently testable:
   `coordinator-autopilot`) produces and promotes a constrained learned policy.
 
 Pure decisions live in `scripts/domain`; use-case sequencing lives in
-`scripts/application/chapek-command-core.mjs`. The core depends on a platform
+`scripts/application/chapek-command-core.ts`. The core depends on a platform
 port only. `scripts/infrastructure/os/windows` and
 `scripts/infrastructure/os/macos` implement that port for native discovery,
 installation, process supervision, and accelerator execution. `harness.ps1`

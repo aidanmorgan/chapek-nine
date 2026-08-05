@@ -12,5 +12,5 @@ $node = Get-Command node.exe -ErrorAction SilentlyContinue
 if (-not $node) { $node = Get-Command node -ErrorAction SilentlyContinue }
 if (-not $node) { throw "Node.js is required. Install Node.js, then rerun this command." }
 
-& $node.Source (Join-Path $root "scripts\windows-harness.mjs") @Arguments
+& (Join-Path $root "node_modules\.bin\tsx.cmd") (Join-Path $root "scripts\windows-harness.ts") @Arguments
 exit $LASTEXITCODE
