@@ -68,10 +68,12 @@ schema-constrained JSON containing:
 3. common developer-task prompts and difficulty variants; and
 4. measured task/role rankings from the eval report when available.
 
-`training\train_coordinator.py` performs all-linear BF16 LoRA by default and
-can use QLoRA when requested. `train-coordinator` creates an isolated venv,
-trains the adapter, and converts it with llama.cpp's
-`convert_lora_to_gguf.py`.
+`npm run materialize-training-corpus` is a TypeScript command. It uses the
+official DuckDB Node API to write Zstandard Parquet and prove that the held-out
+set has no task-family leakage. The CUDA QLoRA trainer remains a distinct
+native-training concern: it requires an implementation with autograd,
+4-bit NF4 quantization, and CUDA kernels; the current production implementation
+is the Hugging Face CUDA stack invoked by the Windows training port.
 
 Every learned plan is validated against `config\coordinator-schema.json`,
 available model IDs, maximum step count, and minimum confidence. Timeout,
