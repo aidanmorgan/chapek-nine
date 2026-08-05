@@ -37,6 +37,30 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
       mode,
     });
   };
+  const coordinatorCapability = () => platform.coordinatorCapability();
+  const trainCoordinator = async () => {
+    const capability = coordinatorCapability();
+    if (!capability.localTraining) return platform.reportCoordinatorFallback(capability);
+    return platform.trainCoordinator({ root, modelsDir, runtimeDir });
+  };
+  const evaluateCoordinator = async () => {
+    const capability = coordinatorCapability();
+    if (!capability.localEvaluation) return platform.reportCoordinatorFallback(capability);
+    return platform.evaluateCoordinator({ root, modelsDir, runtimeDir, startup: entry(), local: requireLocal(entry()) });
+  };
+  const awaitEvals = async () => {
+    const reportPath = await platform.waitForRoutingEvaluation({ runtimeDir });
+    const report = JSON.parse(platform.readFile(reportPath));
+    if (!Array.isArray(report.rows) || !report.rows.length) throw new Error(`Routing evaluation report is incomplete: ${reportPath}`);
+    const measured = new Set(report.models || []);
+    for (const item of all()) {
+      if (measured.has(item.id) || !local(item)) continue;
+      await verify(item); await calibrate(item, "full"); await probe(item); await evaluate(item, "full");
+    }
+    await trainCoordinator();
+    await evaluateCoordinator();
+    await platform.smoke(entry(), requireLocal(entry()));
+  };
   const init = async () => {
     await platform.setup();
     await platform.adapterConformance();
@@ -71,6 +95,9 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
         const target = ["quick", "full"].includes(name) && !value ? null : selected();
         return evaluate(target, mode);
       }
+      if (command === "train-coordinator") return trainCoordinator();
+      if (command === "evaluate-coordinator") return evaluateCoordinator();
+      if (command === "await-evals") return awaitEvals();
       if (command === "init") return init();
       // These remain platform operations until the Windows composition root is
       // migrated; they do not duplicate the shared evidence workflows above.
