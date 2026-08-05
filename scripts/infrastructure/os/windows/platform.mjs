@@ -1,48 +1,378 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { createLlamaRuntime } from "../../llama-runtime.mjs";
 import { probeHardware } from "../../../platform/hardware.mjs";
 
 /** Windows implementation of the same platform port consumed by chapek-command-core. */
 export function createWindowsPlatform({ root, modelsDir, runtimeDir, profilesPath }) {
-  const logsDir = path.join(runtimeDir, "logs"); const statePath = process.env.KIMI_RUNTIME_DIR ? path.join(runtimeDir, ".state.json") : path.join(root, ".state.json");
-  const port = Number(process.env.KIMI_ROUTER_PORT || 8080); const proxyPort = Number(process.env.KIMI_PROXY_PORT || 8090);
-  const run = (exe, args, options = {}) => execFileSync(exe, args, { cwd: root, stdio: "inherit", windowsHide: true, ...options });
-  const output = (exe, args) => { const result = spawnSync(exe, args, { encoding: "utf8", windowsHide: true }); return result.status === 0 ? result.stdout.trim() : ""; };
-  const readJson = (file, fallback = null) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; } };
-  const writeJson = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`); };
+  const statePath = process.env.KIMI_RUNTIME_DIR
+    ? path.join(runtimeDir, ".state.json")
+    : path.join(root, ".state.json");
+  const port = Number(process.env.KIMI_ROUTER_PORT || 8080);
+  const run = (exe, args, options = {}) =>
+    execFileSync(exe, args, { cwd: root, stdio: "inherit", windowsHide: true, ...options });
+  const output = (exe, args) => {
+    const result = spawnSync(exe, args, { encoding: "utf8", windowsHide: true });
+    return result.status === 0 ? result.stdout.trim() : "";
+  };
   const where = (name) => output("where.exe", [name]).split(/\r?\n/)[0];
   const findRuntimeExecutable = (directory, name) => {
     if (!fs.existsSync(directory)) return null;
     for (const child of fs.readdirSync(directory, { withFileTypes: true })) {
       const candidate = path.join(directory, child.name);
       if (child.isFile() && child.name.toLowerCase() === name.toLowerCase()) return candidate;
-      if (child.isDirectory()) { const found = findRuntimeExecutable(candidate, name); if (found) return found; }
+      if (child.isDirectory()) {
+        const found = findRuntimeExecutable(candidate, name);
+        if (found) return found;
+      }
     }
     return null;
   };
-  const llama = (binary) => { const variable = `KIMI_LLAMA_${binary.toUpperCase()}`; const configured = process.env[variable]; if (configured && fs.existsSync(configured)) return configured; const configuredDir = process.env.KIMI_LLAMA_DIR; const candidate = configuredDir && path.join(configuredDir, `llama-${binary}.exe`); if (candidate && fs.existsSync(candidate)) return candidate; const installed = findRuntimeExecutable(path.join(runtimeDir, "llama.cpp"), `llama-${binary}.exe`); if (installed) return installed; const found = where(`llama-${binary}.exe`) || where(`llama-${binary}`); if (!found) throw new Error(`llama-${binary}.exe is missing. Run scripts/windows-harness.mjs setup.`); return found; };
-  const calibration = (id) => readJson(path.join(runtimeDir, "calibration.json"), { profiles: {} }).profiles?.[id]?.selected || {};
-  const offload = (item) => { const value = calibration(item.id); const mode = value.offloadMode || item.profile.offloadMode || "auto"; if (mode === "partial-cpu-moe") return ["--fit", "off", "-ngl", "all", "--n-cpu-moe", String(value.cpuMoeLayers ?? item.profile.cpuMoeLayers ?? 0)]; if (mode === "cpu-moe") return ["--fit", "off", "-ngl", "all", "--cpu-moe"]; return ["--fit", "on", "--fit-target", String(value.fitTargetMiB ?? 1536)]; };
-  const waitHealth = async (url) => { for (let n = 0; n < 60; n += 1) { try { if ((await fetch(url)).ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 1000)); } throw new Error(`${url} did not become healthy; inspect ${logsDir}.`); };
-  const writePresets = () => { const config = JSON.parse(fs.readFileSync(profilesPath, "utf8")); const lines = ["version = 1", "", "[*]", "jinja = true", "parallel = 1", "cache-prompt = true", `slot-save-path = ${path.join(runtimeDir, "kv-cache")}`, ""]; for (const [id, profile] of Object.entries(config.profiles)) { const manifest = readJson(path.join(modelsDir, id, "manifest.json")); if (!profile.supported || !manifest?.files?.length || manifest.repo !== profile.repo || manifest.quant !== profile.quant) continue; const modelPath = path.join(modelsDir, id, manifest.files[0].path); if (!fs.existsSync(modelPath)) continue; const value = calibration(id); lines.push(`[${id}]`, `model = ${modelPath}`, `ctx-size = ${value.context || profile.context || 4096}`, `batch-size = ${value.batchSize || 512}`, `ubatch-size = ${value.ubatchSize || 256}`, `threads = ${value.threads || Math.max(1, Math.floor(os.cpus().length / 2))}`, `cache-type-k = ${value.cacheTypeK || profile.cacheTypeK || "q8_0"}`, `cache-type-v = ${value.cacheTypeV || profile.cacheTypeV || "q8_0"}`, `flash-attn = ${value.flashAttention === false ? "off" : "on"}`); const args = offload({ id, profile }); for (let i = 0; i < args.length; i += 2) lines.push(`${args[i].replace(/^-+/, "").replace("ngl", "n-gpu-layers")} = ${args[i + 1] || "true"}`); lines.push("load-on-startup = false", ""); } const file = path.join(runtimeDir, "models.ini"); fs.mkdirSync(runtimeDir, { recursive: true }); fs.writeFileSync(file, `${lines.join("\r\n")}\r\n`); return file; };
-  const stop = () => { const state = readJson(statePath); for (const pid of [state?.proxyPid, state?.coordinatorPid, state?.pid]) if (Number.isInteger(pid)) try { process.kill(pid); } catch {} try { fs.unlinkSync(statePath); } catch {} };
-  const start = async (item, local) => { stop(); const preset = writePresets(); fs.mkdirSync(logsDir, { recursive: true }); const server = spawn(llama("server"), ["--models-dir", modelsDir, "--models-preset", preset, "--no-models-autoload", "--host", "127.0.0.1", "--port", String(port)], { detached: true, windowsHide: true, stdio: ["ignore", fs.openSync(path.join(logsDir, "llama-server.log"), "a"), fs.openSync(path.join(logsDir, "llama-server.err.log"), "a")] }); server.unref(); await waitHealth(`http://127.0.0.1:${port}/health`); await fetch(`http://127.0.0.1:${port}/models/load`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: local.manifest.modelId }) }); const proxy = spawn("node", [path.join(root, "scripts", "model-proxy.mjs")], { detached: true, windowsHide: true, env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}`, KIMI_PROXY_PORT: String(proxyPort), KIMI_KV_CACHE_DIR: path.join(runtimeDir, "kv-cache"), KIMI_MODELS_DIR: modelsDir, CHAPEK_READINESS_PATH: path.join(runtimeDir, "readiness.json") }, stdio: ["ignore", fs.openSync(path.join(logsDir, "model-proxy.log"), "a"), fs.openSync(path.join(logsDir, "model-proxy.err.log"), "a")] }); proxy.unref(); await waitHealth(`http://127.0.0.1:${proxyPort}/health`); writeJson(statePath, { pid: server.pid, proxyPid: proxy.pid, port, proxyPort, profile: item.id, started: new Date().toISOString() }); };
-  const piDirectory = (item) => { const directory = path.join(runtimeDir, "pi-agent"); fs.mkdirSync(directory, { recursive: true }); const context = calibration(item.id).context || item.profile.context || 4096; writeJson(path.join(directory, "models.json"), { providers: { "llama-local": { baseUrl: `http://127.0.0.1:${proxyPort}/v1`, api: "openai-completions", apiKey: "local", models: [{ id: "chapek-nine", name: "Chapek Nine", input: ["text"], contextWindow: context + 4096, maxTokens: Math.min(2048, context), cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }); return directory; };
-  const startCoordinator = async () => { const config = readJson(path.join(root, "config", "coordinator.json")); const directory = path.join(modelsDir, "coordinator"); let manifest = readJson(path.join(directory, "manifest.json")); if (!manifest || manifest.repo !== config.base.repo || manifest.quant !== config.base.quant || !manifest.files?.length || !fs.existsSync(path.join(directory, manifest.files[0].path))) { run("node.exe", [path.join(root, "scripts", "download-hf.mjs"), config.base.repo, config.base.quant, directory]); manifest = readJson(path.join(directory, "manifest.json")); } const base = path.join(directory, manifest.files[0].path); const adapter = path.join(runtimeDir, config.adapter); if (!fs.existsSync(adapter)) throw new Error("Coordinator adapter is missing; train-coordinator first."); const coordinatorPort = Number(process.env.CHAPEK_COORDINATOR_PORT || 8081); const state = readJson(statePath, {}); if (Number.isInteger(state.coordinatorPid)) { try { await waitHealth(`http://127.0.0.1:${coordinatorPort}/health`); return; } catch { try { process.kill(state.coordinatorPid); } catch {} } } const process = spawn(llama("server"), ["-m", base, "-a", adapter, "--host", "127.0.0.1", "--port", String(coordinatorPort), "--ctx-size", String(config.context || 2048), "-ngl", "0"], { detached: true, windowsHide: true, stdio: ["ignore", fs.openSync(path.join(logsDir, "coordinator.log"), "a"), fs.openSync(path.join(logsDir, "coordinator.err.log"), "a")] }); process.unref(); await waitHealth(`http://127.0.0.1:${coordinatorPort}/health`); writeJson(statePath, { ...state, coordinatorPid: process.pid }); };
+  const llama = (binary) => {
+    const variable = `KIMI_LLAMA_${binary.toUpperCase()}`;
+    const configured = process.env[variable];
+    if (configured && fs.existsSync(configured)) return configured;
+    const configuredDir = process.env.KIMI_LLAMA_DIR;
+    const candidate = configuredDir && path.join(configuredDir, `llama-${binary}.exe`);
+    if (candidate && fs.existsSync(candidate)) return candidate;
+    const installed = findRuntimeExecutable(
+      path.join(runtimeDir, "llama.cpp"),
+      `llama-${binary}.exe`,
+    );
+    if (installed) return installed;
+    const found = where(`llama-${binary}.exe`) || where(`llama-${binary}`);
+    if (!found)
+      throw new Error(`llama-${binary}.exe is missing. Run scripts/windows-harness.mjs setup.`);
+    return found;
+  };
+  const runtime = createLlamaRuntime({
+    root,
+    modelsDir,
+    runtimeDir,
+    profilesPath,
+    statePath,
+    lineEnding: "\r\n",
+    llama,
+    spawnOptions: { windowsHide: true },
+    kill: (pid) => {
+      try {
+        process.kill(pid);
+      } catch {}
+    },
+  });
+  const {
+    calibration,
+    offload,
+    waitHealth,
+    readJson,
+    writeJson,
+    stop,
+    start,
+    piDirectory,
+    logsDir,
+  } = runtime;
+  const startCoordinator = async () => {
+    const config = readJson(path.join(root, "config", "coordinator.json"));
+    const directory = path.join(modelsDir, "coordinator");
+    let manifest = readJson(path.join(directory, "manifest.json"));
+    if (
+      !manifest ||
+      manifest.repo !== config.base.repo ||
+      manifest.quant !== config.base.quant ||
+      !manifest.files?.length ||
+      !fs.existsSync(path.join(directory, manifest.files[0].path))
+    ) {
+      run("node.exe", [
+        path.join(root, "scripts", "download-hf.mjs"),
+        config.base.repo,
+        config.base.quant,
+        directory,
+      ]);
+      manifest = readJson(path.join(directory, "manifest.json"));
+    }
+    const base = path.join(directory, manifest.files[0].path);
+    const adapter = path.join(runtimeDir, config.adapter);
+    if (!fs.existsSync(adapter))
+      throw new Error("Coordinator adapter is missing; train-coordinator first.");
+    const coordinatorPort = Number(process.env.CHAPEK_COORDINATOR_PORT || 8081);
+    const state = readJson(statePath, {});
+    if (Number.isInteger(state.coordinatorPid)) {
+      try {
+        await waitHealth(`http://127.0.0.1:${coordinatorPort}/health`);
+        return;
+      } catch {
+        try {
+          process.kill(state.coordinatorPid);
+        } catch {}
+      }
+    }
+    const process = spawn(
+      llama("server"),
+      [
+        "-m",
+        base,
+        "-a",
+        adapter,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(coordinatorPort),
+        "--ctx-size",
+        String(config.context || 2048),
+        "-ngl",
+        "0",
+      ],
+      {
+        detached: true,
+        windowsHide: true,
+        stdio: [
+          "ignore",
+          fs.openSync(path.join(logsDir, "coordinator.log"), "a"),
+          fs.openSync(path.join(logsDir, "coordinator.err.log"), "a"),
+        ],
+      },
+    );
+    process.unref();
+    await waitHealth(`http://127.0.0.1:${coordinatorPort}/health`);
+    writeJson(statePath, { ...state, coordinatorPid: process.pid });
+  };
   return {
-    fileExists: fs.existsSync, readFile: (file) => fs.readFileSync(file, "utf8"), usage: () => "Usage: node scripts/windows-harness.mjs <setup|init|doctor|profiles|onboard <name> <owner/repo> <quant>|download|download-all|verify|verify-all|calibrate|calibrate-all|probe|readiness|evals|train-coordinator|evaluate-coordinator|await-evals|smoke|start|stop|pi> [profile] [quick|full]",
-    help() { console.log(this.usage()); }, showProfiles(config) { for (const [id, item] of Object.entries(config.profiles)) console.log(`${id}\t${item.supported ? "supported" : "capability-gated"}\t${item.displayName}`); }, profileOnboarded({ name, repo, quant }) { console.log(`Onboarded ${name} (${repo}:${quant}). Run download, verify, calibrate, probe, and evals before admission.`); },
-    doctor({ modelsDir: modelDirectory, runtimeDir: dataDirectory }) { const hardware = probeHardware(); console.log(JSON.stringify({ platform: hardware.platform, cpu: hardware.cpu, ramGiB: Math.round(hardware.totalRamBytes / 2 ** 30 * 10) / 10, accelerator: hardware.gpu, llamaServer: (() => { try { return llama("server"); } catch { return null; } })(), node: process.version, modelsDir: modelDirectory, runtimeDir: dataDirectory }, null, 2)); },
-    async setup() { run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "scripts", "install-llama.ps1"), "-Cuda", "12.4"]); run("npm.cmd", ["install", "--ignore-scripts"]); },
-    async download(item, directory) { if (!item.profile.supported) throw new Error(`${item.id} is capability-gated.`); run("node.exe", [path.join(root, "scripts", "download-hf.mjs"), item.profile.repo, item.profile.quant, directory]); },
-    async verify(item, local) { const result = spawnSync(llama("cli"), ["-m", local.path, "--jinja", "--prompt", "Reply with exactly: LOCAL CUDA OK", "--predict", "12", "--single-turn", "--no-display-prompt", ...offload(item)], { encoding: "utf8", windowsHide: true }); const text = `${result.stdout || ""}\n${result.stderr || ""}`; const passed = result.status === 0 && /^\s*LOCAL CUDA OK\s*$/m.test(text); writeJson(path.join(runtimeDir, "verification", `${item.id}.json`), { version: 1, profile: item.id, modelPath: local.path, verifiedAt: new Date().toISOString(), backend: "cuda", passed, exitCode: result.status, expected: "(?m)^\\s*LOCAL CUDA OK\\s*$", outputTail: text.slice(-4000), artifact: local.manifest }); if (!passed) throw new Error(`CUDA inference verification failed for ${item.id}.`); },
-    async calibrate(item, local, mode) { stop(); run("node.exe", [path.join(root, "scripts", "calibrate.mjs"), llama("bench"), local.path, item.id, profilesPath, path.join(runtimeDir, "calibration.json"), mode, local.manifestPath]); },
-    async probe(item, local) { await start(item, local); run("node.exe", [path.join(root, "scripts", "probe-model.mjs"), local.manifest.modelId, path.join(runtimeDir, "capabilities", `${item.id}.json`), local.manifestPath, String(item.profile.context || 4096)], { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}` } }); },
-    async adapterConformance() { run("node.exe", [path.join(root, "scripts", "adapter-conformance.mjs")]); }, async generateReadiness({ root: rootDir, modelsDir: modelDirectory, runtimeDir: dataDirectory }) { run("node.exe", [path.join(root, "scripts", "application", "generate-readiness-report.mjs"), rootDir, modelDirectory, dataDirectory, path.join(dataDirectory, "readiness.json")]); },
-    coordinatorCapability() { return { localTraining: true, localEvaluation: true, reason: "Windows CUDA QLoRA coordinator is available after its CUDA/Python preflight." }; }, reportCoordinatorFallback(capability) { console.log(`Coordinator fallback: ${capability.reason}`); return { mode: "deterministic", reason: capability.reason }; }, async trainCoordinator() { run("node.exe", [path.join(root, "scripts", "infrastructure", "os", "windows", "train-coordinator.mjs"), root, modelsDir, runtimeDir]); }, async evaluateCoordinator({ startup, local }) { await start(startup, local); await startCoordinator(); const data = path.join(runtimeDir, "coordinator", "data"); if (!fs.existsSync(path.join(data, "validation.jsonl"))) throw new Error("Coordinator validation data is missing; train-coordinator first."); run("node.exe", [path.join(root, "scripts", "evaluate-coordinator.mjs"), data, path.join(runtimeDir, "coordinator-eval.json")], { env: { ...process.env, CHAPEK_COORDINATOR_URL: `http://127.0.0.1:${Number(process.env.CHAPEK_COORDINATOR_PORT || 8081)}` } }); }, async waitForRoutingEvaluation({ runtimeDir: dataDirectory }) { const report = path.join(dataDirectory, "routing-evals.json"); while (!fs.existsSync(report)) await new Promise((resolve) => setTimeout(resolve, 30_000)); return report; },
-    async evaluate({ target, startup, local, mode }) { await start(startup, local); const args = [path.join(root, "scripts", "run-routing-evals.mjs"), path.join(runtimeDir, "routing-evals.json"), mode]; if (target) args.push(target.id); run("node.exe", args, { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}`, KIMI_MODELS_DIR: modelsDir, KIMI_RUNTIME_DIR: runtimeDir } }); },
-    async start(item, local) { await start(item, local); }, stop, async pi(item, local) { await start(item, local); run(path.join(root, "node_modules", ".bin", "pi.cmd"), ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local"], { env: { ...process.env, PI_CODING_AGENT_DIR: piDirectory(item) } }); }, async smoke(item, local) { await start(item, local); run(path.join(root, "node_modules", ".bin", "pi.cmd"), ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local", "--no-session", "--no-tools", "--print", "Reply with exactly: LOCAL PI OK"], { env: { ...process.env, PI_CODING_AGENT_DIR: piDirectory(item) } }); },
+    fileExists: fs.existsSync,
+    readFile: (file) => fs.readFileSync(file, "utf8"),
+    usage: () =>
+      "Usage: node scripts/windows-harness.mjs <setup|init|doctor|profiles|onboard <name> <owner/repo> <quant>|download|download-all|verify|verify-all|calibrate|calibrate-all|probe|readiness|evals|train-coordinator|evaluate-coordinator|await-evals|smoke|start|stop|pi> [profile] [quick|full]",
+    help() {
+      console.log(this.usage());
+    },
+    showProfiles(config) {
+      for (const [id, item] of Object.entries(config.profiles))
+        console.log(
+          `${id}\t${item.supported ? "supported" : "capability-gated"}\t${item.displayName}`,
+        );
+    },
+    profileOnboarded({ name, repo, quant }) {
+      console.log(
+        `Onboarded ${name} (${repo}:${quant}). Run download, verify, calibrate, probe, and evals before admission.`,
+      );
+    },
+    doctor({ modelsDir: modelDirectory, runtimeDir: dataDirectory }) {
+      const hardware = probeHardware();
+      console.log(
+        JSON.stringify(
+          {
+            platform: hardware.platform,
+            cpu: hardware.cpu,
+            ramGiB: Math.round((hardware.totalRamBytes / 2 ** 30) * 10) / 10,
+            accelerator: hardware.gpu,
+            llamaServer: (() => {
+              try {
+                return llama("server");
+              } catch {
+                return null;
+              }
+            })(),
+            node: process.version,
+            modelsDir: modelDirectory,
+            runtimeDir: dataDirectory,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+    async setup() {
+      run("powershell.exe", [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(root, "scripts", "install-llama.ps1"),
+        "-Cuda",
+        "12.4",
+      ]);
+      run("npm.cmd", ["install", "--ignore-scripts"]);
+    },
+    async download(item, directory) {
+      if (!item.profile.supported) throw new Error(`${item.id} is capability-gated.`);
+      run("node.exe", [
+        path.join(root, "scripts", "download-hf.mjs"),
+        item.profile.repo,
+        item.profile.quant,
+        directory,
+      ]);
+    },
+    async verify(item, local) {
+      const result = spawnSync(
+        llama("cli"),
+        [
+          "-m",
+          local.path,
+          "--jinja",
+          "--prompt",
+          "Reply with exactly: LOCAL CUDA OK",
+          "--predict",
+          "12",
+          "--single-turn",
+          "--no-display-prompt",
+          ...offload(item),
+        ],
+        { encoding: "utf8", windowsHide: true },
+      );
+      const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+      const passed = result.status === 0 && /^\s*LOCAL CUDA OK\s*$/m.test(text);
+      writeJson(path.join(runtimeDir, "verification", `${item.id}.json`), {
+        version: 1,
+        profile: item.id,
+        modelPath: local.path,
+        verifiedAt: new Date().toISOString(),
+        backend: "cuda",
+        passed,
+        exitCode: result.status,
+        expected: "(?m)^\\s*LOCAL CUDA OK\\s*$",
+        outputTail: text.slice(-4000),
+        artifact: local.manifest,
+      });
+      if (!passed) throw new Error(`CUDA inference verification failed for ${item.id}.`);
+    },
+    async calibrate(item, local, mode) {
+      stop();
+      run("node.exe", [
+        path.join(root, "scripts", "calibrate.mjs"),
+        llama("bench"),
+        local.path,
+        item.id,
+        profilesPath,
+        path.join(runtimeDir, "calibration.json"),
+        mode,
+        local.manifestPath,
+      ]);
+    },
+    async probe(item, local) {
+      await start(item, local);
+      run(
+        "node.exe",
+        [
+          path.join(root, "scripts", "probe-model.mjs"),
+          local.manifest.modelId,
+          path.join(runtimeDir, "capabilities", `${item.id}.json`),
+          local.manifestPath,
+          String(item.profile.context || 4096),
+        ],
+        { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}` } },
+      );
+    },
+    async adapterConformance() {
+      run("node.exe", [path.join(root, "scripts", "adapter-conformance.mjs")]);
+    },
+    async generateReadiness({
+      root: rootDir,
+      modelsDir: modelDirectory,
+      runtimeDir: dataDirectory,
+    }) {
+      run("node.exe", [
+        path.join(root, "scripts", "application", "generate-readiness-report.mjs"),
+        rootDir,
+        modelDirectory,
+        dataDirectory,
+        path.join(dataDirectory, "readiness.json"),
+      ]);
+    },
+    coordinatorCapability() {
+      return {
+        localTraining: true,
+        localEvaluation: true,
+        reason: "Windows CUDA QLoRA coordinator is available after its CUDA/Python preflight.",
+      };
+    },
+    reportCoordinatorFallback(capability) {
+      console.log(`Coordinator fallback: ${capability.reason}`);
+      return { mode: "deterministic", reason: capability.reason };
+    },
+    async trainCoordinator() {
+      run("node.exe", [
+        path.join(root, "scripts", "infrastructure", "os", "windows", "train-coordinator.mjs"),
+        root,
+        modelsDir,
+        runtimeDir,
+      ]);
+    },
+    async evaluateCoordinator({ startup, local }) {
+      await start(startup, local);
+      await startCoordinator();
+      const data = path.join(runtimeDir, "coordinator", "data");
+      if (!fs.existsSync(path.join(data, "validation.jsonl")))
+        throw new Error("Coordinator validation data is missing; train-coordinator first.");
+      run(
+        "node.exe",
+        [
+          path.join(root, "scripts", "evaluate-coordinator.mjs"),
+          data,
+          path.join(runtimeDir, "coordinator-eval.json"),
+        ],
+        {
+          env: {
+            ...process.env,
+            CHAPEK_COORDINATOR_URL: `http://127.0.0.1:${Number(process.env.CHAPEK_COORDINATOR_PORT || 8081)}`,
+          },
+        },
+      );
+    },
+    async waitForRoutingEvaluation({ runtimeDir: dataDirectory }) {
+      const report = path.join(dataDirectory, "routing-evals.json");
+      while (!fs.existsSync(report)) await new Promise((resolve) => setTimeout(resolve, 30_000));
+      return report;
+    },
+    async evaluate({ target, startup, local, mode }) {
+      await start(startup, local);
+      const args = [
+        path.join(root, "scripts", "run-routing-evals.mjs"),
+        path.join(runtimeDir, "routing-evals.json"),
+        mode,
+      ];
+      if (target) args.push(target.id);
+      run("node.exe", args, {
+        env: {
+          ...process.env,
+          LLAMA_BASE_URL: `http://127.0.0.1:${port}`,
+          KIMI_MODELS_DIR: modelsDir,
+          KIMI_RUNTIME_DIR: runtimeDir,
+        },
+      });
+    },
+    async start(item, local) {
+      await start(item, local);
+    },
+    stop,
+    async pi(item, local) {
+      await start(item, local);
+      run(
+        path.join(root, "node_modules", ".bin", "pi.cmd"),
+        ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local"],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: piDirectory(item) } },
+      );
+    },
+    async smoke(item, local) {
+      await start(item, local);
+      run(
+        path.join(root, "node_modules", ".bin", "pi.cmd"),
+        [
+          "--approve",
+          "--provider",
+          "llama-local",
+          "--model",
+          "chapek-nine",
+          "--api-key",
+          "local",
+          "--no-session",
+          "--no-tools",
+          "--print",
+          "Reply with exactly: LOCAL PI OK",
+        ],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: piDirectory(item) } },
+      );
+    },
   };
 }

@@ -1,36 +1,230 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { createLlamaRuntime } from "../../llama-runtime.mjs";
 import { probeHardware } from "../../../platform/hardware.mjs";
 
 export function createMacosPlatform({ root, modelsDir, runtimeDir, profilesPath }) {
-  const logsDir = path.join(runtimeDir, "logs"); const statePath = path.join(runtimeDir, ".state.json");
-  const port = Number(process.env.KIMI_ROUTER_PORT || 8080); const proxyPort = Number(process.env.KIMI_PROXY_PORT || 8090);
-  const run = (exe, args, options = {}) => execFileSync(exe, args, { cwd: root, stdio: "inherit", ...options });
-  const output = (exe, args) => { const result = spawnSync(exe, args, { encoding: "utf8" }); return result.status === 0 ? result.stdout.trim() : ""; };
-  const readJson = (file, fallback = null) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; } };
-  const writeJson = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`); };
-  const llama = (binary) => { const configured = process.env[`KIMI_LLAMA_${binary.toUpperCase()}`]; if (configured && fs.existsSync(configured)) return configured; const found = output("sh", ["-lc", `command -v llama-${binary}`]); if (!found) throw new Error(`llama-${binary} is missing. Run ./harness.sh setup.`); return found; };
-  const calibration = (id) => readJson(path.join(runtimeDir, "calibration.json"), { profiles: {} }).profiles?.[id]?.selected || {};
-  const offload = (item) => { const value = calibration(item.id); const mode = value.offloadMode || item.profile.offloadMode || "auto"; if (mode === "partial-cpu-moe") return ["--fit", "off", "-ngl", "all", "--n-cpu-moe", String(value.cpuMoeLayers ?? item.profile.cpuMoeLayers ?? 0)]; if (mode === "cpu-moe") return ["--fit", "off", "-ngl", "all", "--cpu-moe"]; return ["--fit", "on", "--fit-target", String(value.fitTargetMiB ?? 1536)]; };
-  const waitHealth = async (url) => { for (let n = 0; n < 60; n += 1) { try { if ((await fetch(url)).ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 1000)); } throw new Error(`${url} did not become healthy; inspect ${logsDir}.`); };
-  const writePresets = () => { const config = JSON.parse(fs.readFileSync(profilesPath, "utf8")); const lines = ["version = 1", "", "[*]", "jinja = true", "parallel = 1", "cache-prompt = true", `slot-save-path = ${path.join(runtimeDir, "kv-cache")}`, ""]; for (const [id, profile] of Object.entries(config.profiles)) { const manifest = readJson(path.join(modelsDir, id, "manifest.json")); if (!profile.supported || !manifest?.files?.length || manifest.repo !== profile.repo || manifest.quant !== profile.quant) continue; const value = calibration(id); const local = path.join(modelsDir, id, manifest.files[0].path); if (!fs.existsSync(local)) continue; lines.push(`[${id}]`, `model = ${local}`, `ctx-size = ${value.context || profile.context || 4096}`, `batch-size = ${value.batchSize || 512}`, `ubatch-size = ${value.ubatchSize || 256}`, `threads = ${value.threads || Math.max(1, Math.floor(os.cpus().length / 2))}`, `cache-type-k = ${value.cacheTypeK || profile.cacheTypeK || "q8_0"}`, `cache-type-v = ${value.cacheTypeV || profile.cacheTypeV || "q8_0"}`, `flash-attn = ${value.flashAttention === false ? "off" : "on"}`); const args = offload({ id, profile }); for (let i = 0; i < args.length; i += 2) lines.push(`${args[i].replace(/^-+/, "").replace("ngl", "n-gpu-layers")} = ${args[i + 1] || "true"}`); lines.push("load-on-startup = false", ""); } const file = path.join(runtimeDir, "models.ini"); fs.mkdirSync(runtimeDir, { recursive: true }); fs.writeFileSync(file, `${lines.join("\n")}\n`); return file; };
-  const stop = () => { const state = readJson(statePath); for (const pid of [state?.proxyPid, state?.pid]) if (Number.isInteger(pid)) try { process.kill(pid, "SIGTERM"); } catch {} try { fs.unlinkSync(statePath); } catch {} };
-  const start = async (item, local) => { const artifact = local || (() => { throw new Error("start requires a resolved artifact"); })(); stop(); const preset = writePresets(); fs.mkdirSync(logsDir, { recursive: true }); const server = spawn(llama("server"), ["--models-dir", modelsDir, "--models-preset", preset, "--no-models-autoload", "--host", "127.0.0.1", "--port", String(port)], { detached: true, stdio: ["ignore", fs.openSync(path.join(logsDir, "llama-server.log"), "a"), fs.openSync(path.join(logsDir, "llama-server.err.log"), "a")] }); server.unref(); await waitHealth(`http://127.0.0.1:${port}/health`); await fetch(`http://127.0.0.1:${port}/models/load`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: artifact.manifest.modelId }) }); const proxy = spawn("node", [path.join(root, "scripts", "model-proxy.mjs")], { detached: true, env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}`, KIMI_PROXY_PORT: String(proxyPort), KIMI_KV_CACHE_DIR: path.join(runtimeDir, "kv-cache"), KIMI_MODELS_DIR: modelsDir, CHAPEK_READINESS_PATH: path.join(runtimeDir, "readiness.json") }, stdio: ["ignore", fs.openSync(path.join(logsDir, "model-proxy.log"), "a"), fs.openSync(path.join(logsDir, "model-proxy.err.log"), "a")] }); proxy.unref(); await waitHealth(`http://127.0.0.1:${proxyPort}/health`); writeJson(statePath, { pid: server.pid, proxyPid: proxy.pid, port, proxyPort, profile: item.id, started: new Date().toISOString() }); };
-  const piDir = (item) => { const directory = path.join(runtimeDir, "pi-agent"); fs.mkdirSync(directory, { recursive: true }); const context = calibration(item.id).context || item.profile.context || 4096; writeJson(path.join(directory, "models.json"), { providers: { "llama-local": { baseUrl: `http://127.0.0.1:${proxyPort}/v1`, api: "openai-completions", apiKey: "local", models: [{ id: "chapek-nine", name: "Chapek Nine", input: ["text"], contextWindow: context + 4096, maxTokens: Math.min(2048, context), cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }); return directory; };
+  const statePath = path.join(runtimeDir, ".state.json");
+  const run = (exe, args, options = {}) =>
+    execFileSync(exe, args, { cwd: root, stdio: "inherit", ...options });
+  const output = (exe, args) => {
+    const result = spawnSync(exe, args, { encoding: "utf8" });
+    return result.status === 0 ? result.stdout.trim() : "";
+  };
+  const llama = (binary) => {
+    const configured = process.env[`KIMI_LLAMA_${binary.toUpperCase()}`];
+    if (configured && fs.existsSync(configured)) return configured;
+    const found = output("sh", ["-lc", `command -v llama-${binary}`]);
+    if (!found) throw new Error(`llama-${binary} is missing. Run ./harness.sh setup.`);
+    return found;
+  };
+  const runtime = createLlamaRuntime({
+    root,
+    modelsDir,
+    runtimeDir,
+    profilesPath,
+    statePath,
+    llama,
+    kill: (pid) => {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {}
+    },
+  });
+  const { calibration, offload, writeJson, stop, start, piDirectory: piDir, port } = runtime;
   return {
-    fileExists: fs.existsSync, readFile: (file) => fs.readFileSync(file, "utf8"), usage: () => "Usage: ./harness.sh <setup|init|doctor|profiles|onboard <name> <owner/repo> <quant>|download|download-all|verify|verify-all|calibrate|calibrate-all|probe|readiness|evals|train-coordinator|evaluate-coordinator|await-evals|smoke|start|stop|pi> [profile] [quick|full]",
-    help() { console.log(this.usage()); }, showProfiles(config) { for (const [id, item] of Object.entries(config.profiles)) console.log(`${id}\t${item.supported ? "supported" : "capability-gated"}\t${item.displayName}`); }, profileOnboarded({ name, repo, quant }) { console.log(`Onboarded ${name} (${repo}:${quant}). Run download, verify, calibrate, probe, and evals before admission.`); },
-    doctor({ modelsDir: modelDirectory, runtimeDir: dataDirectory }) { const hardware = probeHardware(); console.log(JSON.stringify({ platform: hardware.platform, cpu: hardware.cpu, ramGiB: Math.round(hardware.totalRamBytes / 2 ** 30 * 10) / 10, accelerator: hardware.gpu, llamaServer: output("sh", ["-lc", "command -v llama-server"]) || null, node: process.version, modelsDir: modelDirectory, runtimeDir: dataDirectory }, null, 2)); },
-    async setup() { run("bash", [path.join(root, "scripts", "install-llama-macos.sh")]); run("npm", ["install", "--ignore-scripts"]); },
-    async download(item, directory) { if (!item.profile.supported) throw new Error(`${item.id} is capability-gated.`); run("node", [path.join(root, "scripts", "download-hf.mjs"), item.profile.repo, item.profile.quant, directory]); },
-    async verify(item, local) { const result = spawnSync(llama("cli"), ["-m", local.path, "--jinja", "--prompt", "Reply with exactly: LOCAL METAL OK", "--predict", "12", "--single-turn", "--no-display-prompt", ...offload(item)], { encoding: "utf8" }); const text = `${result.stdout || ""}\n${result.stderr || ""}`; const passed = result.status === 0 && /^\s*LOCAL METAL OK\s*$/m.test(text); writeJson(path.join(runtimeDir, "verification", `${item.id}.json`), { version: 1, profile: item.id, modelPath: local.path, verifiedAt: new Date().toISOString(), backend: "metal", passed, exitCode: result.status, expected: "(?m)^\\s*LOCAL METAL OK\\s*$", outputTail: text.slice(-4000), artifact: local.manifest }); if (!passed) throw new Error(`Metal inference verification failed for ${item.id}.`); },
-    async calibrate(item, local, mode) { stop(); run("node", [path.join(root, "scripts", "calibrate.mjs"), llama("bench"), local.path, item.id, profilesPath, path.join(runtimeDir, "calibration.json"), mode, local.manifestPath]); },
-    async probe(item, local) { await start(item, local); run("node", [path.join(root, "scripts", "probe-model.mjs"), local.manifest.modelId, path.join(runtimeDir, "capabilities", `${item.id}.json`), local.manifestPath, String(item.profile.context || 4096)], { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}` } }); },
-    async adapterConformance() { run("node", [path.join(root, "scripts", "adapter-conformance.mjs")]); }, async generateReadiness({ root: rootDir, modelsDir: modelDirectory, runtimeDir: dataDirectory }) { run("node", [path.join(root, "scripts", "application", "generate-readiness-report.mjs"), rootDir, modelDirectory, dataDirectory, path.join(dataDirectory, "readiness.json")]); },
-    coordinatorCapability() { return { localTraining: false, localEvaluation: false, reason: "QLoRA coordinator training and serving require the supported Windows CUDA toolchain; deterministic routing remains active." }; }, reportCoordinatorFallback(capability) { console.log(`Coordinator fallback: ${capability.reason}`); return { mode: "deterministic", reason: capability.reason }; }, async waitForRoutingEvaluation({ runtimeDir: dataDirectory }) { const report = path.join(dataDirectory, "routing-evals.json"); while (!fs.existsSync(report)) await new Promise((resolve) => setTimeout(resolve, 30_000)); return report; },
-    async evaluate({ target, startup, local, mode }) { await start(startup, local); const args = [path.join(root, "scripts", "run-routing-evals.mjs"), path.join(runtimeDir, "routing-evals.json"), mode]; if (target) args.push(target.id); run("node", args, { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}`, KIMI_MODELS_DIR: modelsDir, KIMI_RUNTIME_DIR: runtimeDir } }); },
-    async start(item, local) { await start(item, local); }, stop, async pi(item, local) { await start(item, local); run(path.join(root, "node_modules", ".bin", "pi"), ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local"], { env: { ...process.env, PI_CODING_AGENT_DIR: piDir(item) } }); }, async smoke(item, local) { await start(item, local); run(path.join(root, "node_modules", ".bin", "pi"), ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local", "--no-session", "--no-tools", "--print", "Reply with exactly: LOCAL PI OK"], { env: { ...process.env, PI_CODING_AGENT_DIR: piDir(item) } }); },
+    fileExists: fs.existsSync,
+    readFile: (file) => fs.readFileSync(file, "utf8"),
+    usage: () =>
+      "Usage: ./harness.sh <setup|init|doctor|profiles|onboard <name> <owner/repo> <quant>|download|download-all|verify|verify-all|calibrate|calibrate-all|probe|readiness|evals|train-coordinator|evaluate-coordinator|await-evals|smoke|start|stop|pi> [profile] [quick|full]",
+    help() {
+      console.log(this.usage());
+    },
+    showProfiles(config) {
+      for (const [id, item] of Object.entries(config.profiles))
+        console.log(
+          `${id}\t${item.supported ? "supported" : "capability-gated"}\t${item.displayName}`,
+        );
+    },
+    profileOnboarded({ name, repo, quant }) {
+      console.log(
+        `Onboarded ${name} (${repo}:${quant}). Run download, verify, calibrate, probe, and evals before admission.`,
+      );
+    },
+    doctor({ modelsDir: modelDirectory, runtimeDir: dataDirectory }) {
+      const hardware = probeHardware();
+      console.log(
+        JSON.stringify(
+          {
+            platform: hardware.platform,
+            cpu: hardware.cpu,
+            ramGiB: Math.round((hardware.totalRamBytes / 2 ** 30) * 10) / 10,
+            accelerator: hardware.gpu,
+            llamaServer: output("sh", ["-lc", "command -v llama-server"]) || null,
+            node: process.version,
+            modelsDir: modelDirectory,
+            runtimeDir: dataDirectory,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+    async setup() {
+      run("bash", [path.join(root, "scripts", "install-llama-macos.sh")]);
+      run("npm", ["install", "--ignore-scripts"]);
+    },
+    async download(item, directory) {
+      if (!item.profile.supported) throw new Error(`${item.id} is capability-gated.`);
+      run("node", [
+        path.join(root, "scripts", "download-hf.mjs"),
+        item.profile.repo,
+        item.profile.quant,
+        directory,
+      ]);
+    },
+    async verify(item, local) {
+      const result = spawnSync(
+        llama("cli"),
+        [
+          "-m",
+          local.path,
+          "--jinja",
+          "--prompt",
+          "Reply with exactly: LOCAL METAL OK",
+          "--predict",
+          "12",
+          "--single-turn",
+          "--no-display-prompt",
+          ...offload(item),
+        ],
+        { encoding: "utf8" },
+      );
+      const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+      const passed = result.status === 0 && /^\s*LOCAL METAL OK\s*$/m.test(text);
+      writeJson(path.join(runtimeDir, "verification", `${item.id}.json`), {
+        version: 1,
+        profile: item.id,
+        modelPath: local.path,
+        verifiedAt: new Date().toISOString(),
+        backend: "metal",
+        passed,
+        exitCode: result.status,
+        expected: "(?m)^\\s*LOCAL METAL OK\\s*$",
+        outputTail: text.slice(-4000),
+        artifact: local.manifest,
+      });
+      if (!passed) throw new Error(`Metal inference verification failed for ${item.id}.`);
+    },
+    async calibrate(item, local, mode) {
+      stop();
+      run("node", [
+        path.join(root, "scripts", "calibrate.mjs"),
+        llama("bench"),
+        local.path,
+        item.id,
+        profilesPath,
+        path.join(runtimeDir, "calibration.json"),
+        mode,
+        local.manifestPath,
+      ]);
+    },
+    async probe(item, local) {
+      await start(item, local);
+      run(
+        "node",
+        [
+          path.join(root, "scripts", "probe-model.mjs"),
+          local.manifest.modelId,
+          path.join(runtimeDir, "capabilities", `${item.id}.json`),
+          local.manifestPath,
+          String(item.profile.context || 4096),
+        ],
+        { env: { ...process.env, LLAMA_BASE_URL: `http://127.0.0.1:${port}` } },
+      );
+    },
+    async adapterConformance() {
+      run("node", [path.join(root, "scripts", "adapter-conformance.mjs")]);
+    },
+    async generateReadiness({
+      root: rootDir,
+      modelsDir: modelDirectory,
+      runtimeDir: dataDirectory,
+    }) {
+      run("node", [
+        path.join(root, "scripts", "application", "generate-readiness-report.mjs"),
+        rootDir,
+        modelDirectory,
+        dataDirectory,
+        path.join(dataDirectory, "readiness.json"),
+      ]);
+    },
+    coordinatorCapability() {
+      return {
+        localTraining: false,
+        localEvaluation: false,
+        reason:
+          "QLoRA coordinator training and serving require the supported Windows CUDA toolchain; deterministic routing remains active.",
+      };
+    },
+    reportCoordinatorFallback(capability) {
+      console.log(`Coordinator fallback: ${capability.reason}`);
+      return { mode: "deterministic", reason: capability.reason };
+    },
+    async waitForRoutingEvaluation({ runtimeDir: dataDirectory }) {
+      const report = path.join(dataDirectory, "routing-evals.json");
+      while (!fs.existsSync(report)) await new Promise((resolve) => setTimeout(resolve, 30_000));
+      return report;
+    },
+    async evaluate({ target, startup, local, mode }) {
+      await start(startup, local);
+      const args = [
+        path.join(root, "scripts", "run-routing-evals.mjs"),
+        path.join(runtimeDir, "routing-evals.json"),
+        mode,
+      ];
+      if (target) args.push(target.id);
+      run("node", args, {
+        env: {
+          ...process.env,
+          LLAMA_BASE_URL: `http://127.0.0.1:${port}`,
+          KIMI_MODELS_DIR: modelsDir,
+          KIMI_RUNTIME_DIR: runtimeDir,
+        },
+      });
+    },
+    async start(item, local) {
+      await start(item, local);
+    },
+    stop,
+    async pi(item, local) {
+      await start(item, local);
+      run(
+        path.join(root, "node_modules", ".bin", "pi"),
+        ["--approve", "--provider", "llama-local", "--model", "chapek-nine", "--api-key", "local"],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: piDir(item) } },
+      );
+    },
+    async smoke(item, local) {
+      await start(item, local);
+      run(
+        path.join(root, "node_modules", ".bin", "pi"),
+        [
+          "--approve",
+          "--provider",
+          "llama-local",
+          "--model",
+          "chapek-nine",
+          "--api-key",
+          "local",
+          "--no-session",
+          "--no-tools",
+          "--print",
+          "Reply with exactly: LOCAL PI OK",
+        ],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: piDir(item) } },
+      );
+    },
   };
 }
