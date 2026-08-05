@@ -1,14 +1,15 @@
-import fs from "node:fs";
 import path from "node:path";
 import { matchesConfiguredArtifact } from "./local-artifact.mjs";
+import { createFileProfileRepository } from "./profile-repository.mjs";
+import { onboardProfile } from "../domain/profile-onboarding.mjs";
 
 /**
  * Platform-independent command use-cases.  The platform port owns commands,
  * hardware discovery and process control; this core owns ordering, artifact
  * identity and acceptance evidence.
  */
-export function createChapekCommandCore({ root, platform, profilesPath = path.join(root, "config", "profiles.json"), modelsDir, runtimeDir }) {
-  const profiles = () => JSON.parse(fs.readFileSync(profilesPath, "utf8"));
+export function createChapekCommandCore({ root, platform, profilesPath = path.join(root, "config", "profiles.json"), modelsDir, runtimeDir, profileRepository = createFileProfileRepository(profilesPath) }) {
+  const profiles = () => profileRepository.read();
   const entry = (name) => {
     const config = profiles(); const id = name || config.default; const profile = config.profiles[id];
     if (!profile) throw new Error(`Unknown profile '${id}'.`);
@@ -83,11 +84,16 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
     await platform.smoke(defaultWorker, requireLocal(defaultWorker));
   };
   return {
-    async execute(command = "help", name, value) {
+    async execute(command = "help", name, value, extra) {
       const selected = () => entry(name);
       if (command === "help") return platform.help();
       if (command === "doctor") return platform.doctor({ modelsDir, runtimeDir });
       if (command === "profiles") return platform.showProfiles(profiles());
+      if (command === "onboard") {
+        const updated = onboardProfile(profiles(), { name, repo: value, quant: extra });
+        profileRepository.write(updated);
+        return platform.profileOnboarded({ name, repo: value, quant: extra, configurationPath: profileRepository.path });
+      }
       if (command === "download") return download(selected());
       if (command === "download-all") { for (const item of all()) await download(item); return; }
       if (command === "verify") return verify(selected());
