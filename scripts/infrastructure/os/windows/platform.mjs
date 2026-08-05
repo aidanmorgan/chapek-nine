@@ -13,7 +13,16 @@ export function createWindowsPlatform({ root, modelsDir, runtimeDir, profilesPat
   const readJson = (file, fallback = null) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; } };
   const writeJson = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`); };
   const where = (name) => output("where.exe", [name]).split(/\r?\n/)[0];
-  const llama = (binary) => { const variable = `KIMI_LLAMA_${binary.toUpperCase()}`; const configured = process.env[variable]; if (configured && fs.existsSync(configured)) return configured; const configuredDir = process.env.KIMI_LLAMA_DIR; const candidate = configuredDir && path.join(configuredDir, `llama-${binary}.exe`); if (candidate && fs.existsSync(candidate)) return candidate; const found = where(`llama-${binary}.exe`) || where(`llama-${binary}`); if (!found) throw new Error(`llama-${binary}.exe is missing. Run scripts/windows-harness.mjs setup.`); return found; };
+  const findRuntimeExecutable = (directory, name) => {
+    if (!fs.existsSync(directory)) return null;
+    for (const child of fs.readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, child.name);
+      if (child.isFile() && child.name.toLowerCase() === name.toLowerCase()) return candidate;
+      if (child.isDirectory()) { const found = findRuntimeExecutable(candidate, name); if (found) return found; }
+    }
+    return null;
+  };
+  const llama = (binary) => { const variable = `KIMI_LLAMA_${binary.toUpperCase()}`; const configured = process.env[variable]; if (configured && fs.existsSync(configured)) return configured; const configuredDir = process.env.KIMI_LLAMA_DIR; const candidate = configuredDir && path.join(configuredDir, `llama-${binary}.exe`); if (candidate && fs.existsSync(candidate)) return candidate; const installed = findRuntimeExecutable(path.join(runtimeDir, "llama.cpp"), `llama-${binary}.exe`); if (installed) return installed; const found = where(`llama-${binary}.exe`) || where(`llama-${binary}`); if (!found) throw new Error(`llama-${binary}.exe is missing. Run scripts/windows-harness.mjs setup.`); return found; };
   const calibration = (id) => readJson(path.join(runtimeDir, "calibration.json"), { profiles: {} }).profiles?.[id]?.selected || {};
   const offload = (item) => { const value = calibration(item.id); const mode = value.offloadMode || item.profile.offloadMode || "auto"; if (mode === "partial-cpu-moe") return ["--fit", "off", "-ngl", "all", "--n-cpu-moe", String(value.cpuMoeLayers ?? item.profile.cpuMoeLayers ?? 0)]; if (mode === "cpu-moe") return ["--fit", "off", "-ngl", "all", "--cpu-moe"]; return ["--fit", "on", "--fit-target", String(value.fitTargetMiB ?? 1536)]; };
   const waitHealth = async (url) => { for (let n = 0; n < 60; n += 1) { try { if ((await fetch(url)).ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 1000)); } throw new Error(`${url} did not become healthy; inspect ${logsDir}.`); };

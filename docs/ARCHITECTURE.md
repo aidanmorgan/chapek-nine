@@ -22,8 +22,12 @@ The bounded contexts are deliberately small and independently testable:
 - **Coordinator learning** (`generate-coordinator-data`, `evaluate-coordinator`,
   `coordinator-autopilot`) produces and promotes a constrained learned policy.
 
-Pure decisions live in `scripts/domain`; orchestration that reads/writes files
-or runs processes lives in `scripts/application` or the PowerShell composition
-root (`harness.ps1`). This prevents model additions from becoming special cases:
-add a profile and adapter, then let the lifecycle evidence and routing policy
-operate on it through the same contracts.
+Pure decisions live in `scripts/domain`; use-case sequencing lives in
+`scripts/application/chapek-command-core.mjs`. The core depends on a platform
+port only. `scripts/infrastructure/os/windows` and
+`scripts/infrastructure/os/macos` implement that port for native discovery,
+installation, process supervision, and accelerator execution. `harness.ps1`
+and `harness.sh` are intentionally thin composition entry points. This prevents
+model and operating-system additions from becoming special cases: add a profile
+or platform adapter, then let the same lifecycle evidence and routing policy
+operate through the port contract.
