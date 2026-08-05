@@ -1439,12 +1439,16 @@ function Test-PiProfile {
 }
 
 function Run-RoutingEvals {
+    # With a profile operand this is an incremental admission evaluation. The
+    # Node application merges only that worker's new evidence into a completed
+    # compatible report, while a profile-less command remains a fresh suite run.
+    $targetProfile = $script:Profile
     Start-Server
     $evalMode = if ($Value) { $Value.ToLowerInvariant() } else { "quick" }
     if ($evalMode -notin @("quick", "full")) { throw "Eval mode must be quick or full." }
     $env:LLAMA_BASE_URL = "http://127.0.0.1:$Port"
     & node (Join-Path $Root "scripts\run-routing-evals.mjs") `
-        (Join-Path $RuntimeDir "routing-evals.json") $evalMode
+        (Join-Path $RuntimeDir "routing-evals.json") $evalMode $targetProfile
     if ($LASTEXITCODE -ne 0) { throw "Routing evals failed with exit code $LASTEXITCODE." }
     Write-Host "Routing evals saved and will inform deterministic and LoRA policies."
 }

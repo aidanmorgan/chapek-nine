@@ -113,6 +113,12 @@ After each model download, run:
 .\harness.ps1 evaluate-coordinator
 ```
 
+If a model downloads while a full suite is running, do not restart the
+baseline. After it completes, `await-evals` verifies, calibrates, probes, and
+merges a full targeted evaluation with `.\harness.ps1 evals <profile> full`.
+The resulting report retains the measured evidence for every worker before the
+coordinator is trained.
+
 To calibrate every downloaded, supported worker serially, use
 `.\harness.ps1 calibrate-all full`. Each installed runtime-supported model
 is measured; unsafe or unproductive candidates are rejected by calibration.

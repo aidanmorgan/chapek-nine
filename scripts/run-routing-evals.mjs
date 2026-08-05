@@ -24,6 +24,9 @@ const llamaAuthHeaders = llamaApiKey
 const outputPath =
   process.argv[2] || path.join(root, "runtime", "routing-evals.json");
 const mode = process.argv[3] || "quick";
+// A targeted run is the admission path for a worker downloaded after a long
+// baseline evaluation: it measures just that worker and merges its evidence.
+const requestedModels = process.argv.slice(4).filter(Boolean);
 const suite = loadDeveloperTaskSuite(root);
 const profiles = JSON.parse(
   fs.readFileSync(path.join(root, "config", "profiles.json"), "utf8"),
@@ -139,9 +142,14 @@ const eligibleProfiles = new Set(
     .filter(([, profile]) => profile.supported)
     .map(([id]) => id),
 );
-const models = (await catalog(true))
+const catalogModels = (await catalog(true))
   .map((model) => model.id)
   .filter((id) => eligibleProfiles.has(id));
+const models = requestedModels.length ? requestedModels : catalogModels;
+const unavailable = requestedModels.filter((id) => !catalogModels.includes(id));
+if (unavailable.length) {
+  throw new Error(`Requested evaluation worker is not a supported local llama.cpp model: ${unavailable.join(", ")}`);
+}
 if (!models.length) throw new Error("No models are present in llama.cpp catalog.");
 const modelArtifacts = Object.fromEntries(models.map((id) => {
   const manifest = JSON.parse(fs.readFileSync(path.join(modelsDir, id, "manifest.json"), "utf8"));
@@ -160,6 +168,31 @@ const quickTasks = suite.tasks.filter((task) => {
   return true;
 });
 const tasks = mode === "full" ? suite.tasks : quickTasks;
+let retainedRows = [];
+let retainedModels = [];
+let retainedArtifacts = {};
+if (requestedModels.length && fs.existsSync(outputPath)) {
+  const previous = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  if (
+    previous.suiteVersion !== suite.version ||
+    previous.mode !== mode ||
+    previous.taskCount !== tasks.length
+  ) {
+    throw new Error(
+      "Existing routing evidence is not compatible with this targeted evaluation; run a complete evaluation for the current suite instead.",
+    );
+  }
+  retainedModels = (previous.models || []).filter((id) => !models.includes(id));
+  retainedRows = (previous.rows || []).filter((row) => retainedModels.includes(row.model));
+  retainedArtifacts = Object.fromEntries(
+    retainedModels
+      .filter((id) => previous.modelArtifacts?.[id])
+      .map((id) => [id, previous.modelArtifacts[id]]),
+  );
+  if (retainedModels.length && !retainedRows.length) {
+    throw new Error("Existing routing evidence has no usable rows to merge.");
+  }
+}
 const checkpoint = openEvaluationCheckpoint({
   outputPath,
   identity: {
@@ -170,7 +203,7 @@ const checkpoint = openEvaluationCheckpoint({
     outputBudgets: objective.outputBudgets,
   },
 });
-const rows = checkpoint.rows;
+const allRows = () => [...retainedRows, ...checkpoint.rows];
 for (const model of models) {
   await loadOnly(model);
   for (const task of tasks) {
@@ -240,7 +273,10 @@ for (const model of models) {
   }
 }
 
+const rows = allRows();
 assignUtilities(rows, objective);
+const reportModels = [...retainedModels, ...models];
+const reportArtifacts = { ...retainedArtifacts, ...modelArtifacts };
 
 const rankings = {};
 for (const task of tasks) {
@@ -263,7 +299,7 @@ for (const task of tasks) {
 }
 const roleScores = {};
 for (const role of [...new Set(tasks.map((task) => task.role))]) {
-  roleScores[role] = models
+  roleScores[role] = reportModels
     .map((model) => {
       const relevant = rows.filter(
         (row) => row.model === model && row.role === role,
@@ -318,8 +354,8 @@ const report = {
   suiteVersion: suite.version,
   routingObjective: objective,
   mode,
-  models,
-  modelArtifacts,
+  models: reportModels,
+  modelArtifacts: reportArtifacts,
   taskCount: tasks.length,
   rankings,
   roleScores,
@@ -331,4 +367,4 @@ const temporary = `${outputPath}.${process.pid}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`);
 fs.renameSync(temporary, outputPath);
 checkpoint.complete();
-console.log(JSON.stringify({ outputPath, models, taskCount: tasks.length, roleScores, roleTierPlans }, null, 2));
+console.log(JSON.stringify({ outputPath, models: reportModels, taskCount: tasks.length, roleScores, roleTierPlans }, null, 2));
