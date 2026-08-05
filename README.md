@@ -226,6 +226,7 @@ and retains native tool calling.
 setup                         Install Pi and native CUDA llama.cpp
 doctor                        Show hardware, CUDA, runtime, and model status
 profiles                      List worker profiles
+onboard <name> <repo> <quant> Add a versioned GGUF profile; lifecycle evidence is still required
 download [profile]            Resume, download, and verify a worker
 download-all                  Resume, download, and verify every configured worker
 verify [profile]              Prove direct CUDA inference
