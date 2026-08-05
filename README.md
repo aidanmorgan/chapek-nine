@@ -1,6 +1,6 @@
 # Chapek Nine
 
-Chapek Nine is a native-Windows engineering harness for
+Chapek Nine is a native Windows and macOS engineering harness for
 [Pi](https://pi.dev) backed by [llama.cpp](https://github.com/ggml-org/llama.cpp)
 and CUDA. Pi sees one OpenAI-compatible model named `chapek-nine`; a private
 front door routes work across locally installed Kimi, Qwen, Gemma, and Granite
@@ -13,6 +13,17 @@ the workers can share a single GPU.
 cd C:\dev\projects\kimi
 .\harness.ps1 init
 .\harness.ps1 pi
+```
+
+On Apple Silicon macOS, use the matching native entry point. It installs the
+Homebrew Metal build of llama.cpp and retains the same model manifests,
+calibration search, proxy, adapters, and routing policy; only hardware and
+process lifecycle are platform adapters.
+
+```bash
+cd /path/to/chapek-nine
+./harness.sh init
+./harness.sh pi
 ```
 
 `init` is the complete setup path: it installs local dependencies, downloads
@@ -164,10 +175,13 @@ The generated `calibration.json` is machine-specific and is applied
 automatically. Dense models use llama.cpp automatic layer fitting instead. See
 [the hybrid-offload notes](docs/HYBRID-OFFLOAD.md).
 
-Native Windows CUDA is the preferred path and is verified with
-`llama-server --list-devices`; neither WSL nor a system-wide CUDA toolkit is
-required. WSL remains an optional fallback for unsupported experimental
-runtimes.
+Native Windows CUDA is verified with `llama-server --list-devices`; neither
+WSL nor a system-wide CUDA toolkit is required. Apple Silicon uses llama.cpp's
+native Metal backend through Homebrew. Its GPU uses unified memory, so the
+calibrator treats RAM as one shared pool instead of double-counting it as both
+RAM and VRAM. `./harness.sh doctor` records the CPU, unified accelerator, and
+memory discovered through macOS system APIs. WSL remains an optional fallback
+for unsupported experimental runtimes.
 
 ## Context across model switches
 

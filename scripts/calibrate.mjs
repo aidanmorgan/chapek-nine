@@ -1,9 +1,10 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { adaptiveSearch } from "./calibration-search.mjs";
+import { probeHardware, sampleAcceleratorMemory } from "./platform/hardware.mjs";
 
 const [bench, modelPath, profileName, profilesPath, outputPath, mode = "quick", manifestPath] =
   process.argv.slice(2);
@@ -20,54 +21,11 @@ if (!profile) throw new Error(`Unknown profile '${profileName}'.`);
 const artifact = manifestPath && fs.existsSync(manifestPath)
   ? JSON.parse(fs.readFileSync(manifestPath, "utf8"))
   : null;
-const totalRam = os.totalmem();
-
-function gpuMemory() {
-  const result = spawnSync(
-    "nvidia-smi",
-    [
-      "--query-gpu=memory.total,memory.used,memory.free",
-      "--format=csv,noheader,nounits",
-    ],
-    { encoding: "utf8", windowsHide: true },
-  );
-  const values = result.stdout
-    ?.trim()
-    .split(",")
-    .map((value) => Number(value.trim()));
-  return values?.length === 3 && values.every(Number.isFinite)
-    ? { totalMiB: values[0], usedMiB: values[1], freeMiB: values[2] }
-    : null;
-}
-
-async function sampleGpu() {
-  return await new Promise((resolve) => {
-    const child = spawn(
-      "nvidia-smi",
-      [
-        "--query-gpu=memory.total,memory.used,memory.free",
-        "--format=csv,noheader,nounits",
-      ],
-      { windowsHide: true },
-    );
-    let stdout = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.on("close", () => {
-      const values = stdout
-        .trim()
-        .split(",")
-        .map((value) => Number(value.trim()));
-      resolve(
-        values.length === 3 && values.every(Number.isFinite)
-          ? { totalMiB: values[0], usedMiB: values[1], freeMiB: values[2] }
-          : null,
-      );
-    });
-    child.on("error", () => resolve(null));
-  });
-}
+const hardware = probeHardware();
+const totalRam = hardware.totalRamBytes;
+const sharedMemory = hardware.gpu?.kind === "unified";
+const gpuMemory = sampleAcceleratorMemory;
+const sampleGpu = async () => sampleAcceleratorMemory();
 
 async function runCandidate(candidate, index, count) {
   const args = [
@@ -194,15 +152,14 @@ async function runCandidate(candidate, index, count) {
     512,
     (initialGpuForCandidate?.totalMiB || 0) * 0.04,
   );
-  const estimatedFreeVram = Math.max(
+  const estimatedFreeVram = sharedMemory ? null : Math.max(
     0,
     (initialGpuForCandidate?.totalMiB || 0) -
       desktopVramReserve -
       incrementalVram,
   );
-  const headroomFactor =
-    Math.min(1, estimatedFreeRam / (2 * 1024 ** 3)) *
-    Math.min(1, estimatedFreeVram / 1024);
+  const headroomFactor = Math.min(1, estimatedFreeRam / (2 * 1024 ** 3)) *
+    (sharedMemory ? 1 : Math.min(1, estimatedFreeVram / 1024));
   return {
     ...candidate,
     ok: true,
@@ -228,7 +185,7 @@ const results = await adaptiveSearch({
   profile,
   totalRamGiB: totalRam / 1024 ** 3,
   totalVramMiB: initialGpu?.totalMiB ?? 0,
-  logicalCpus: os.cpus().length,
+  logicalCpus: hardware.logicalCpus,
   mode,
   evaluate: runCandidate,
 });
@@ -246,14 +203,14 @@ const existing = fs.existsSync(outputPath)
 existing.machine = {
   id: crypto
     .createHash("sha256")
-    .update(`${os.hostname()}\0${os.cpus()[0]?.model}\0${totalRam}\0${initialGpu?.totalMiB}`)
+    .update(`${os.hostname()}\0${hardware.cpu}\0${totalRam}\0${initialGpu?.totalMiB}\0${hardware.platform}`)
     .digest("hex")
     .slice(0, 16),
   hostname: os.hostname(),
-  cpu: os.cpus()[0]?.model,
-  logicalCpus: os.cpus().length,
+  cpu: hardware.cpu,
+  logicalCpus: hardware.logicalCpus,
   ramGiB: totalRam / 1024 ** 3,
-  gpu: initialGpu,
+  gpu: initialGpu || hardware.gpu,
 };
 existing.profiles ||= {};
 existing.profiles[profileName] = {
