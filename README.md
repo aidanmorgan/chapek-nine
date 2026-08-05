@@ -117,7 +117,6 @@ After each model download, run:
 
 ```powershell
 .\harness.ps1 calibrate glm-flash full
-.\harness.ps1 calibration-status glm-flash
 .\harness.ps1 probe glm-flash
 .\harness.ps1 evals full
 .\harness.ps1 train-coordinator
@@ -214,18 +213,6 @@ Download specialists independently:
 .\harness.ps1 download granite
 ```
 
-Start a large specialist download without keeping the current terminal open:
-
-```powershell
-.\harness.ps1 download-background glm-flash
-Get-Content -Wait -LiteralPath .\logs\download-glm-flash.out.log
-```
-
-The background process uses the same per-profile lock, segmented resume, and
-SHA-256 validation as a foreground download. `status` reports the job and log
-path. If it is interrupted, rerun the same command to resume; it never starts
-a second writer for that profile.
-
 `glm-flash` is GLM-4.7-Flash 30B-A3B at UD-Q4_K_XL (17.52 GB), the
 strongest current GLM variant that fits this machine. The newer GLM-5.2 and
 full GLM-4.7 checkpoints are 744B-A40B and 355B-A32B respectively, so they are
@@ -233,37 +220,28 @@ outside the host's RAM capacity. The GLM adapter disables unbounded thinking
 for reliable Pi-visible answers, applies the model-card repeat/min-p settings,
 and retains native tool calling.
 
-Select a direct/default profile or point one at another compatible GGUF:
-
-```powershell
-.\harness.ps1 use qwen-coder
-.\harness.ps1 add gemma4 owner/repository Q4_K_M
-```
-
 ## Commands
 
 ```text
 setup                         Install Pi and native CUDA llama.cpp
 doctor                        Show hardware, CUDA, runtime, and model status
 profiles                      List worker profiles
-use <profile>                 Select the default/fallback worker
-add <name> <repo> [quant]     Add or update a GGUF profile
 download [profile]            Resume, download, and verify a worker
-download-background [profile] Run a resumable worker download in the background
+download-all                  Resume, download, and verify every configured worker
 verify [profile]              Prove direct CUDA inference
+verify-all                    Prove direct CUDA inference for every configured worker
 calibrate [profile] [mode]    Tune CPU/GPU placement (quick or full)
 calibrate-all [mode]          Tune every downloaded safe worker serially
-init [mode] [training]        Download, tune, probe, and conditionally train
-calibration-status [profile]  Detect a material throughput regression
+init                          Install, download, tune, probe, evaluate, train where supported, and smoke-test
 readiness                     Refresh and display worker admission evidence
 probe [profile]               Create a local worker capability report
-evals [quick|full]            Rank installed workers on developer tasks
+evals [profile] [quick|full]  Rank every worker, or merge a newly admitted worker
 train-coordinator             Generate data and train/convert coordinator LoRA
 evaluate-coordinator          Gate learned routing on held-out data
+await-evals                   Continue acceptance after an already-running full evaluation
 smoke [profile]               Prove router, front door, streaming, and Pi
-start [profile]               Start router, coordinator, and front door
+start [profile]               Start router and front door
 pi [profile]                  Start services and launch Pi on chapek-nine
-status                        Show managed service state
 stop                          Stop managed services
 ```
 

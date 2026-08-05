@@ -43,9 +43,8 @@ win by exhausting host memory, oversubscribing VRAM, or thermally throttling.
 ```powershell
 .\harness.ps1 calibrate <profile> full
 .\harness.ps1 calibrate-all full
-.\harness.ps1 calibration-status <profile>
 ```
 
 `init` runs the full calibration automatically after verified model download.
-Use `calibration-status` to detect a material throughput regression and rerun
-the affected model's full search when required.
+Calibration history is retained as measured lifecycle evidence; rerun the
+affected model's full search after a driver, artifact, or hardware change.

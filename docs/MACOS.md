@@ -1,10 +1,11 @@
 # macOS
 
 Chapek Nine supports native Apple Silicon macOS through `harness.sh`. This is
-an infrastructure composition root alongside `harness.ps1`: model profiles,
+an infrastructure adapter alongside the Windows adapter: model profiles,
 manifests, adapters, readiness policy, calibration search, proxy, evaluation,
-and routing are shared Node domain/application code. The shell-specific layer
-is limited to installation, hardware discovery, and process lifecycle.
+and routing are shared Node domain/application code. `harness.sh` and
+`harness.ps1` are thin composition entry points; OS-specific code is limited
+to installation, hardware discovery, and process lifecycle.
 
 ## Prerequisites
 
