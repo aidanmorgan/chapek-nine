@@ -79,7 +79,8 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
     await readiness();
     await trainCoordinator();
     await evaluateCoordinator();
-    await platform.smoke(entry());
+    const defaultWorker = entry();
+    await platform.smoke(defaultWorker, requireLocal(defaultWorker));
   };
   return {
     async execute(command = "help", name, value) {
