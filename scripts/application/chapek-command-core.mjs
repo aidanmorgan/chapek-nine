@@ -28,6 +28,15 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
   const calibrate = async (item, mode = "quick") => platform.calibrate(item, requireLocal(item), mode);
   const probe = async (item) => platform.probe(item, requireLocal(item));
   const readiness = async () => platform.generateReadiness({ root, modelsDir, runtimeDir });
+  const evaluate = async (target, mode = "quick") => {
+    const startup = target || entry();
+    return platform.evaluate({
+      target,
+      startup,
+      local: requireLocal(startup),
+      mode,
+    });
+  };
   const init = async () => {
     await platform.setup();
     await platform.adapterConformance();
@@ -39,7 +48,7 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
     // The evaluated model set is platform data; the evaluation workflow and
     // admission evidence remain common. A coordinator is optional capability,
     // never a reason to bypass deterministic routing or evidence gates.
-    await platform.evaluate(entry(), "full");
+    await evaluate(null, "full");
     await readiness();
     await platform.smoke(entry());
   };
@@ -57,7 +66,11 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
       if (command === "calibrate-all") { for (const item of all()) await calibrate(item, value || "full"); return; }
       if (command === "probe") return probe(selected());
       if (command === "readiness") return readiness();
-      if (command === "evals") return platform.evaluate(selected(), value || "quick");
+      if (command === "evals") {
+        const mode = ["quick", "full"].includes(name) && !value ? name : (value || "quick");
+        const target = ["quick", "full"].includes(name) && !value ? null : selected();
+        return evaluate(target, mode);
+      }
       if (command === "init") return init();
       // These remain platform operations until the Windows composition root is
       // migrated; they do not duplicate the shared evidence workflows above.
