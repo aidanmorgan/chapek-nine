@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "format": "Parquet (Zstandard), verified with DuckDB",
+  "format": "Parquet (Zstandard), materialized and verified with DuckDB Node API",
   "trainRows": 9060,
   "validationRows": 5820,
   "trainTaskFamilies": 453,
@@ -343,12 +343,12 @@
   },
   "files": {
     "train.parquet": {
-      "sha256": "82a07b721a72bf3dff44eb1fa5b07b68dca75d1544d2179b68e26b4211750ec7",
-      "bytes": 947480
+      "sha256": "fc382ace0063d5720cc47f7ca7067e038152c6180764d16e70bf99b7b96af879",
+      "bytes": 857103
     },
     "validation.parquet": {
-      "sha256": "67671d605548f2635290945225380b95ff8e9ce98ae59cd71254430cf09de7a3",
-      "bytes": 597235
+      "sha256": "f1df4c9f78612b0d882840e243d751b96b9eee47b50a1651a54d9efff0a4eb04",
+      "bytes": 546557
     }
   }
 }
