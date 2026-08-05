@@ -11,13 +11,13 @@ fs.writeFileSync(path.join(models, "worker", "model.gguf"), "x"); fs.writeFileSy
 const calls = []; const platform = { fileExists: fs.existsSync, readFile: (file) => fs.readFileSync(file, "utf8"), usage: () => "help", help() {}, doctor() {}, showProfiles() {}, async download() { calls.push("download"); }, async verify() { calls.push("verify"); }, async calibrate(_item, _local, mode) { calls.push(`calibrate:${mode}`); }, async probe() { calls.push("probe"); }, async adapterConformance() { calls.push("conformance"); }, async generateReadiness() { calls.push("readiness"); }, async evaluate(request) { calls.push(`evals:${request.mode}:${request.target?.id || "all"}`); }, async smoke() { calls.push("smoke"); }, async setup() { calls.push("setup"); }, async start() {}, stop() {}, async pi() {}, coordinatorCapability() { return { localTraining: true, localEvaluation: true }; }, async trainCoordinator() { calls.push("train"); }, async evaluateCoordinator() { calls.push("coordinator-eval"); }, async waitForRoutingEvaluation() { return path.join(runtime, "routing-evals.json"); }, reportCoordinatorFallback() { calls.push("fallback"); } };
 const core = createChapekCommandCore({ root, platform, profilesPath: path.join(root, "profiles.json"), modelsDir: models, runtimeDir: runtime });
 await core.execute("init");
-assert.deepEqual(calls, ["setup", "conformance", "download", "verify", "calibrate:full", "probe", "readiness", "evals:full:all", "readiness", "smoke"]);
+assert.deepEqual(calls, ["setup", "conformance", "download", "verify", "calibrate:full", "probe", "readiness", "evals:full:all", "readiness", "train", "coordinator-eval", "smoke"]);
 await core.execute("evals", "full");
 await core.execute("evals", "worker", "quick");
 assert.deepEqual(calls.slice(-2), ["evals:full:all", "evals:quick:worker"]);
 await core.execute("train-coordinator");
 await core.execute("evaluate-coordinator");
-fs.writeFileSync(path.join(runtime, "routing-evals.json"), JSON.stringify({ models: ["worker"], rows: [{}] }));
+fs.writeFileSync(path.join(runtime, "routing-evals.json"), JSON.stringify({ models: ["worker"], modelArtifacts: { worker: {} }, rows: [{}] }));
 await core.execute("await-evals");
-assert.deepEqual(calls.slice(-5), ["train", "coordinator-eval", "train", "coordinator-eval", "smoke"]);
+assert.deepEqual(calls.slice(-5), ["coordinator-eval", "readiness", "train", "coordinator-eval", "smoke"]);
 fs.rmSync(root, { recursive: true, force: true }); console.log("command core tests passed");

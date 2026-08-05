@@ -51,12 +51,15 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
   const awaitEvals = async () => {
     const reportPath = await platform.waitForRoutingEvaluation({ runtimeDir });
     const report = JSON.parse(platform.readFile(reportPath));
-    if (!Array.isArray(report.rows) || !report.rows.length) throw new Error(`Routing evaluation report is incomplete: ${reportPath}`);
+    if (!Array.isArray(report.rows) || !report.rows.length || !report.modelArtifacts) {
+      throw new Error(`Routing evaluation report is incomplete: ${reportPath}`);
+    }
     const measured = new Set(report.models || []);
     for (const item of all()) {
       if (measured.has(item.id) || !local(item)) continue;
       await verify(item); await calibrate(item, "full"); await probe(item); await evaluate(item, "full");
     }
+    await readiness();
     await trainCoordinator();
     await evaluateCoordinator();
     await platform.smoke(entry(), requireLocal(entry()));
@@ -74,6 +77,8 @@ export function createChapekCommandCore({ root, platform, profilesPath = path.jo
     // never a reason to bypass deterministic routing or evidence gates.
     await evaluate(null, "full");
     await readiness();
+    await trainCoordinator();
+    await evaluateCoordinator();
     await platform.smoke(entry());
   };
   return {
